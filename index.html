@@ -80,6 +80,20 @@ textarea{width:100%;min-height:130px;background:var(--bg);color:var(--fg);border
 code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;border:1px solid var(--line)}
 .sum{display:flex;gap:8px;flex-wrap:wrap}
 .sum .cell{flex:1 1 120px}
+.sign{cursor:pointer}
+.limedit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.limedit label{flex:1 1 140px;font-size:14px;color:var(--muted)}
+.limedit input,.item input{width:84px;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px;font:600 17px var(--display);font-variant-numeric:tabular-nums}
+.limedit .btn{flex:0 0 auto;padding:9px 14px}
+.whatif{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.wi-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.wi-h span{font-size:12px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.wi-h b{font:700 26px var(--display);font-variant-numeric:tabular-nums;color:var(--accent)}
+.whatif input[type=range]{width:100%;accent-color:var(--accent);height:32px}
+.wi-scale{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.wi-out{font-size:15px}
+.wi-out strong{font:700 20px var(--display);font-variant-numeric:tabular-nums}
+.item .lim{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--muted)}
 @media (prefers-reduced-motion:reduce){.bar i{transition:none}}
 </style>
 
@@ -111,7 +125,12 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
           <div class="avg idle" id="avg">—</div>
           <div class="avg-lbl">Koridor ortalaman · km/s</div>
         </div>
-        <div class="sign none" id="sign" aria-label="Hız limiti">—</div>
+        <div class="sign none" id="sign" role="button" tabindex="0" aria-label="Hız limiti — değiştirmek için dokun">—</div>
+      </div>
+      <div class="limedit" id="limEdit" hidden>
+        <label for="limIn">Bu koridorun limiti</label>
+        <input id="limIn" type="number" inputmode="numeric" min="20" max="160" step="10">
+        <button class="btn" id="limSave">Kaydet</button>
       </div>
       <div class="bar" aria-hidden="true"><i id="prog"></i></div>
       <div class="grid">
@@ -119,6 +138,12 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
         <div class="cell"><span>Geçen süre</span><b id="elapsed">0:00</b></div>
         <div class="cell"><span>Zaman payı</span><b id="slack">—</b></div>
         <div class="cell"><span>Kalan için ort. üst sınır</span><b id="maxv">—</b></div>
+      </div>
+      <div class="whatif" id="whatif" hidden>
+        <div class="wi-h"><span>Kalan yolu bu hızla gidersem</span><b id="wiV">— km/s</b></div>
+        <input type="range" id="wiR" min="30" max="90" step="5" value="90" aria-label="Kalan yol için hız">
+        <div class="wi-scale"><span id="wiMin">30</span><span id="wiMax">90 · limit</span></div>
+        <div class="wi-out" id="wiOut"></div>
       </div>
       <div class="note" id="note" hidden></div>
     </div>
@@ -186,6 +211,18 @@ let osmList = store.get('eds_osm') || [];
 let bList = store.get('eds_b') || [];
 let osmMeta = store.get('eds_osm_meta') || null;
 let corridors = [];
+let ov = store.get('eds_ov') || {};
+const key = c => [c.from.lat, c.from.lon, c.to.lat, c.to.lon].map(v => v.toFixed(4)).join(',');
+function applyOv(c){ const v = ov[key(c)]; if (v){ c.limit = v; c.manual = true; } return c; }
+function setLimit(c, v){
+  v = parseInt(v, 10);
+  if (!(v >= 20 && v <= 160)) return false;
+  ov[key(c)] = v; store.set('eds_ov', ov);
+  [c, DEMO, ...corridors].forEach(o => { if (key(o) === key(c)){ o.limit = v; o.manual = true; } });
+  wiTouched = false;
+  renderList(); render();
+  return true;
+}
 
 function merge(){
   const out = [];
@@ -202,6 +239,7 @@ function merge(){
   };
   osmList.forEach(c => add(c, 'osm'));
   bList.forEach(c => add(c, 'b'));
+  out.forEach(applyOv); applyOv(DEMO);
   corridors = out;
   renderList(); renderStatus();
 }
@@ -232,8 +270,14 @@ function renderList(){
     if (c.sources.length > 1) chip('İki kaynak ✓', 'both');
     else chip(c.sources[0] === 'osm' ? 'Yalnız OSM' : 'Yalnız 2. liste');
     if (c.conflict) chip(c.conflict, 'conf');
-    if (!c.limit) chip('Limit bilinmiyor', 'conf');
-    t.append(st, sp, ch); it.append(s, t); L.append(it);
+    if (c.manual) chip('Limit elle girildi');
+    else if (!c.limit) chip('Limit bilinmiyor', 'conf');
+    const lw = document.createElement('label'); lw.className = 'lim';
+    const li = document.createElement('input'); li.type = 'number'; li.inputMode = 'numeric'; li.min = 20; li.max = 160; li.step = 10;
+    li.id = 'lim-' + key(c); li.value = c.limit || ''; li.setAttribute('aria-label', c.name + ' limiti');
+    li.addEventListener('change', () => { if (!setLimit(c, li.value)) li.value = c.limit || ''; });
+    lw.append(li, document.createTextNode('limit'));
+    t.append(st, sp, ch); it.append(s, t, lw); L.append(it);
   });
 }
 
@@ -333,6 +377,7 @@ function onFix(f){   // f: {lat, lon, t(ms), speed(m/s|null), acc}
 }
 
 function startRun(c, f){
+  wiTouched = false;
   run = {
     c, t0:f.t, now:f.t, traveled:0, startD:dist(f, c.to), confirmed:false,
     stopStart:null, stopAvgBefore:null, stopSlackBefore:null, stopNote:null, v:0, finished:null,
@@ -390,6 +435,7 @@ function render(){
     sign.className = 'sign none'; sign.textContent = '—';
     $('prog').style.width = '0'; $('remain').textContent = '— km'; $('elapsed').textContent = '0:00';
     $('slack').textContent = '—'; $('slack').className = ''; $('maxv').textContent = '—';
+    $('whatif').hidden = true; $('limEdit').hidden = true;
     if (lastResult){
       const ok = lastResult.limit ? lastResult.avg <= lastResult.limit : null;
       showNote(note, 'Son koridor: ' + lastResult.name + ' — ortalama ' + lastResult.avg + ' km/s' + (lastResult.limit ? ', limit ' + lastResult.limit : '') + ', süre ' + fmtT(lastResult.time) + '.', ok === false ? 'bad' : 'good');
@@ -413,6 +459,7 @@ function render(){
     if (left <= 0) $('maxv').textContent = 'Yasal limit';
     else { const mv = rem / left * 3.6; $('maxv').textContent = mv > c.limit ? 'Yasal limit' : Math.max(0, Math.round(mv)) + ' km/s'; }
   } else $('maxv').textContent = '—';
+  renderWhatIf(c, el, rem);
 
   if (run.stopStart != null && (run.now - run.stopStart) >= 8000){
     const dur = (run.now - run.stopStart)/1000, gain = s - run.stopSlackBefore;
@@ -422,6 +469,40 @@ function render(){
     showNote(note, 'Son mola ' + fmtT(n.dur) + ' sürdü: ortalama ' + n.a0 + ' → ' + n.a1 + ' km/s, +' + Math.round(n.gain) + ' sn pay.', 'stop');
   } else note.hidden = true;
 }
+
+/* ---------- Kalan yol hesaplayıcı ---------- */
+let wiTouched = false;
+function renderWhatIf(c, el, rem){
+  const box = $('whatif'), r = $('wiR');
+  if (!c.limit){ box.hidden = true; return; }
+  box.hidden = false;
+  const max = c.limit;
+  if (+r.max !== max){ r.max = max; $('wiMax').textContent = max + ' · limit'; }
+  if (!wiTouched || +r.value > max) r.value = max;
+  const v = +r.value;
+  $('wiV').textContent = v + ' km/s';
+  const tRem = rem / (v/3.6);
+  const fin = (run.traveled + rem) / (el + tRem) * 3.6;
+  const out = $('wiOut'); out.textContent = '';
+  const s1 = document.createElement('div');
+  s1.append('Bitiş ortalaman ≈ ');
+  const b = document.createElement('strong'); b.textContent = Math.round(fin) + ' km/s';
+  b.className = fin > c.limit ? 'neg' : 'pos'; s1.append(b);
+  const s2 = document.createElement('div'); s2.style.color = 'var(--muted)'; s2.style.fontSize = '13.5px';
+  s2.textContent = 'Kalan ' + fmtKm(rem) + ' · yaklaşık ' + fmtT(tRem) + ' dk' + (fin > c.limit ? ' · ortalama limitin üstünde kalır' : ' · limitin altında biter');
+  out.append(s1, s2);
+}
+$('wiR').addEventListener('input', () => { wiTouched = true; if (run && run.confirmed) render(); });
+
+/* ---------- Limit düzeltme ---------- */
+function toggleLimEdit(){
+  if (!run || !run.confirmed) return;
+  const e = $('limEdit'); e.hidden = !e.hidden;
+  if (!e.hidden){ $('limIn').value = run.c.limit || ''; $('limIn').focus(); }
+}
+$('sign').addEventListener('click', toggleLimEdit);
+$('sign').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggleLimEdit(); } });
+$('limSave').addEventListener('click', () => { if (run && setLimit(run.c, $('limIn').value)) $('limEdit').hidden = true; });
 
 /* ---------- GPS ---------- */
 let watchId = null, wake = null;
