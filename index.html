@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d1214">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Koridor Ortalama</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{margin:0}
+/* Layout: tek sütun sürüş paneli — üstte durum şeridi, ortada dev ortalama + limit levhası, altta sekmeler (Sürüş / Koridorlar / Kaynaklar) */
+:root{
+  --bg:#0d1214; --panel:#151c1f; --line:#25302f; --fg:#e9eeec; --muted:#8c9a97;
+  --sign:#d62b2b; --ok:#2fbf71; --warn:#f2b632; --over:#ff5a4f; --accent:#f2b632;
+  --display:"Barlow Semi Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px 32px}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.status{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block;margin-right:5px;vertical-align:middle}
+.dot.on{background:var(--ok)} .dot.sim{background:var(--accent)} .dot.err{background:var(--over)}
+.tabs{display:flex;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px}
+.tabs button{flex:1;background:none;border:0;color:var(--muted);font:600 15px var(--body);padding:9px 4px;border-radius:9px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--line);color:var(--fg)}
+button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hud{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:14px}
+.hud-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.cname{font-weight:700;font-size:15px;min-width:0}
+.cname small{display:block;font-weight:400;color:var(--muted);font-size:13px}
+.big{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.avg{font-family:var(--display);font-weight:700;font-size:clamp(84px,26vw,128px);line-height:.85;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.avg.ok{color:var(--ok)} .avg.warn{color:var(--warn)} .avg.over{color:var(--over)} .avg.idle{color:var(--muted)}
+.avg-lbl{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:6px}
+.sign{flex:none;width:96px;height:96px;border-radius:50%;background:#fff;border:11px solid var(--sign);display:grid;place-items:center;
+  font-family:var(--display);font-weight:700;font-size:38px;color:#111;font-variant-numeric:tabular-nums}
+.sign.none{border-color:var(--line);background:var(--panel);color:var(--muted);font-size:22px}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .4s}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+.cell b{display:block;font-family:var(--display);font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1}
+.cell span{font-size:12px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.cell.wide{grid-column:1/-1}
+.pos{color:var(--ok)} .neg{color:var(--over)}
+.note{border-radius:12px;padding:12px 14px;font-size:15px;border:1px solid var(--line);background:var(--bg)}
+.note.stop{border-color:var(--accent)} .note.bad{border-color:var(--over)} .note.good{border-color:var(--ok)}
+.controls{display:flex;flex-wrap:wrap;gap:8px}
+.btn{flex:1 1 140px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:700 15px var(--body);padding:13px 12px;border-radius:12px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#1a1405}
+.btn:disabled{opacity:.45;cursor:default}
+.row{display:flex;align-items:center;gap:10px;font-size:14px}
+.list{display:flex;flex-direction:column;gap:8px}
+.item{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 13px;display:flex;gap:12px;align-items:center}
+.item .mini{flex:none;width:44px;height:44px;border-radius:50%;background:#fff;border:5px solid var(--sign);display:grid;place-items:center;font:700 17px var(--display);color:#111}
+.item .mini.none{background:var(--bg);border-color:var(--line);color:var(--muted)}
+.item .t{min-width:0;flex:1}
+.item .t strong{display:block;font-size:14.5px;overflow-wrap:anywhere}
+.item .t span{font-size:12.5px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.chip{font-size:11.5px;letter-spacing:.04em;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.chip.both{border-color:var(--ok);color:var(--ok)} .chip.conf{border-color:var(--warn);color:var(--warn)}
+h2{font:600 22px var(--display);margin:4px 0 0;letter-spacing:.01em}
+p.help{margin:0;color:var(--muted);font-size:14px;max-width:62ch}
+textarea{width:100%;min-height:130px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:10px;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace}
+.src{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.src-h{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.src-h strong{font-size:15px}
+.src-h span{font-size:13px;color:var(--muted)}
+code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;border:1px solid var(--line)}
+.sum{display:flex;gap:8px;flex-wrap:wrap}
+.sum .cell{flex:1 1 120px}
+@media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <div class="status" role="status">
+    <span><span class="dot" id="gpsDot"></span><span id="gpsTxt">Konum kapalı</span></span>
+    <span>·</span>
+    <span id="srcTxt">Koridor yok</span>
+    <span>·</span>
+    <span id="spdTxt">Anlık — km/s</span>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="drive" id="t-drive">Sürüş</button>
+    <button role="tab" aria-selected="false" data-tab="list" id="t-list">Koridorlar</button>
+    <button role="tab" aria-selected="false" data-tab="src" id="t-src">Kaynaklar</button>
+  </div>
+
+  <!-- SÜRÜŞ -->
+  <section id="p-drive" class="wrap" style="gap:14px">
+    <div class="hud">
+      <div class="hud-top">
+        <div class="cname" id="cName">Koridor dışındasınız<small id="cSub">Bir koridorun girişine yaklaşınca ölçüm kendiliğinden başlar.</small></div>
+      </div>
+      <div class="big">
+        <div>
+          <div class="avg idle" id="avg">—</div>
+          <div class="avg-lbl">Koridor ortalaman · km/s</div>
+        </div>
+        <div class="sign none" id="sign" aria-label="Hız limiti">—</div>
+      </div>
+      <div class="bar" aria-hidden="true"><i id="prog"></i></div>
+      <div class="grid">
+        <div class="cell"><span>Kalan</span><b id="remain">— km</b></div>
+        <div class="cell"><span>Geçen süre</span><b id="elapsed">0:00</b></div>
+        <div class="cell"><span>Zaman payı</span><b id="slack">—</b></div>
+        <div class="cell"><span>Kalan için ort. üst sınır</span><b id="maxv">—</b></div>
+      </div>
+      <div class="note" id="note" hidden></div>
+    </div>
+
+    <div class="controls">
+      <button class="btn primary" id="bGps">GPS ile başlat</button>
+      <button class="btn" id="bSim">Örnek sürüşü oynat</button>
+      <button class="btn" id="bStop" disabled>Durdur</button>
+    </div>
+    <label class="row"><input type="checkbox" id="voice" checked> Sesli bildirim (Türkçe)</label>
+    <p class="help">Zaman payı, ortalamanı limitte tutman için elinde kalan saniyedir. Durduğunda bu pay büyür; tekrar yola çıktığında ne kadar kazandığını sesli söylerim. Ölçüm GPS'e dayanır ve resmi cihazla birebir aynı olmayabilir; kararı her zaman levhalar ve yasal limit belirler.</p>
+  </section>
+
+  <!-- KORİDORLAR -->
+  <section id="p-list" class="wrap" hidden>
+    <h2>Koridorlar</h2>
+    <p class="help">İki kaynakta da aynı giriş ve çıkış noktasıyla (500 m içinde) görünenler “iki kaynak” olarak işaretlenir. Limitler farklıysa düşük olan kullanılır.</p>
+    <div class="list" id="list"></div>
+  </section>
+
+  <!-- KAYNAKLAR -->
+  <section id="p-src" class="wrap" hidden>
+    <div class="src">
+      <div class="src-h"><strong>Kaynak 1 · OpenStreetMap</strong><span id="osmState">Yüklenmedi</span></div>
+      <p class="help">Türkiye'deki <code>enforcement=average_speed</code> kayıtlarını Overpass üzerinden canlı çeker. Sayfa normal bir tarayıcıda (ör. GitHub Pages) açıldığında çalışır.</p>
+      <button class="btn" id="bOsm">OSM'den güncelle</button>
+    </div>
+    <div class="src">
+      <div class="src-h"><strong>Kaynak 2 · İkinci liste</strong><span id="bState">0 koridor</span></div>
+      <p class="help">EGM haritası veya başka bir siteden aldığın listeyi yapıştır. Her satır: <code>ad; giriş enlem; giriş boylam; çıkış enlem; çıkış boylam; limit</code>. JSON dizi de olur.</p>
+      <textarea id="bText" spellcheck="false" placeholder="Örnek Koridor; 39.9000; 32.6000; 39.9500; 32.7000; 90"></textarea>
+      <div class="controls">
+        <button class="btn primary" id="bImport">İçe aktar ve karşılaştır</button>
+        <button class="btn" id="bClear">İkinci listeyi temizle</button>
+      </div>
+      <div class="note" id="impNote" hidden></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+const R = 6371000;
+const toRad = d => d * Math.PI / 180;
+function dist(a, b){
+  const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+const store = {
+  get(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+const fmtKm = m => (m/1000).toFixed(m < 10000 ? 2 : 1).replace('.', ',') + ' km';
+const fmtT = s => { s = Math.max(0, Math.round(s)); const m = Math.floor(s/60), r = s%60; return m + ':' + String(r).padStart(2,'0'); };
+const fmtSlack = s => (s >= 0 ? '+' : '−') + fmtT(Math.abs(s));
+
+/* ---------- Koridor verisi ---------- */
+const DEMO = { id:'demo', name:'Örnek koridor (gerçek değil)', from:{lat:39.9000, lon:32.6000}, to:{lat:39.9600, lon:32.7100}, limit:90, sources:['demo'] };
+DEMO.length = dist(DEMO.from, DEMO.to);
+
+let osmList = store.get('eds_osm') || [];
+let bList = store.get('eds_b') || [];
+let osmMeta = store.get('eds_osm_meta') || null;
+let corridors = [];
+
+function merge(){
+  const out = [];
+  const add = (c, src) => {
+    const hit = out.find(o => dist(o.from, c.from) < 500 && dist(o.to, c.to) < 500);
+    if (hit){
+      if (!hit.sources.includes(src)) hit.sources.push(src);
+      if (c.limit && hit.limit && c.limit !== hit.limit){
+        hit.conflict = 'Limitler farklı: ' + hit.limit + ' / ' + c.limit;
+        hit.limit = Math.min(hit.limit, c.limit);
+      } else if (c.limit && !hit.limit) hit.limit = c.limit;
+      if (hit.name.startsWith('OSM koridoru') && c.name) hit.name = c.name;
+    } else out.push({ ...c, sources:[src] });
+  };
+  osmList.forEach(c => add(c, 'osm'));
+  bList.forEach(c => add(c, 'b'));
+  corridors = out;
+  renderList(); renderStatus();
+}
+
+function renderStatus(){
+  const both = corridors.filter(c => c.sources.length > 1).length;
+  $('srcTxt').textContent = corridors.length ? corridors.length + ' koridor · ' + both + ' doğrulanmış' : 'Koridor yok';
+  $('osmState').textContent = osmMeta ? osmList.length + ' koridor · ' + new Date(osmMeta.t).toLocaleDateString('tr-TR') : 'Yüklenmedi';
+  $('bState').textContent = bList.length + ' koridor';
+}
+
+function renderList(){
+  const L = $('list'); L.textContent = '';
+  const all = corridors.length ? corridors : [];
+  if (!all.length){
+    const n = document.createElement('div'); n.className = 'note';
+    n.textContent = 'Henüz koridor yok. Kaynaklar sekmesinden OSM verisini çek veya ikinci listeyi yapıştır. Denemek için “Örnek sürüşü oynat” her zaman çalışır.';
+    L.append(n); return;
+  }
+  all.forEach(c => {
+    const it = document.createElement('div'); it.className = 'item';
+    const s = document.createElement('div'); s.className = 'mini' + (c.limit ? '' : ' none'); s.textContent = c.limit || '?';
+    const t = document.createElement('div'); t.className = 't';
+    const st = document.createElement('strong'); st.textContent = c.name;
+    const sp = document.createElement('span'); sp.textContent = fmtKm(c.length);
+    const ch = document.createElement('div'); ch.className = 'chips';
+    const chip = (txt, cls) => { const e = document.createElement('span'); e.className = 'chip ' + (cls||''); e.textContent = txt; ch.append(e); };
+    if (c.sources.length > 1) chip('İki kaynak ✓', 'both');
+    else chip(c.sources[0] === 'osm' ? 'Yalnız OSM' : 'Yalnız 2. liste');
+    if (c.conflict) chip(c.conflict, 'conf');
+    if (!c.limit) chip('Limit bilinmiyor', 'conf');
+    t.append(st, sp, ch); it.append(s, t); L.append(it);
+  });
+}
+
+/* ---------- OSM (Kaynak 1) ---------- */
+async function loadOsm(){
+  $('osmState').textContent = 'Yükleniyor…';
+  const q = '[out:json][timeout:60];area["ISO3166-1"="TR"][admin_level=2]->.tr;rel["type"="enforcement"]["enforcement"="average_speed"](area.tr);out body;>;out skel qt;';
+  try{
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 70000);
+    const r = await fetch('https://overpass-api.de/api/interpreter', { method:'POST', body:'data=' + encodeURIComponent(q),
+      headers:{'Content-Type':'application/x-www-form-urlencoded'}, signal:ctl.signal });
+    clearTimeout(to);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    osmList = parseOsm(j);
+    osmMeta = { t: Date.now() };
+    store.set('eds_osm', osmList); store.set('eds_osm_meta', osmMeta);
+    merge();
+  } catch(e){
+    $('osmState').textContent = 'Ulaşılamadı';
+    showNote($('impNote'), 'OSM verisine bu ortamdan ulaşılamadı. Sayfayı kendi adresinden (ör. GitHub Pages) açınca çalışır; burada ikinci listeyi veya örnek sürüşü kullanabilirsin.', 'bad');
+    $('t-src').click();
+  }
+}
+function parseOsm(j){
+  const nodes = {}; j.elements.filter(e => e.type === 'node').forEach(n => nodes[n.id] = { lat:n.lat, lon:n.lon });
+  const out = [];
+  j.elements.filter(e => e.type === 'relation').forEach(r => {
+    const m = r.members || [];
+    const pick = role => m.filter(x => x.type === 'node' && x.role === role).map(x => nodes[x.ref]).filter(Boolean);
+    const dev = pick('device');
+    const from = pick('from')[0] || dev[0];
+    const to = pick('to').slice(-1)[0] || (dev.length > 1 ? dev[dev.length-1] : null);
+    if (!from || !to) return;
+    const tg = r.tags || {};
+    let len = parseFloat(tg.length);
+    if (len > 0 && len < 200) len *= 1000;
+    const straight = dist(from, to);
+    if (!(len > straight * 0.9)) len = straight;
+    out.push({ id:'osm' + r.id, name: tg.name || tg.description || ('OSM koridoru #' + r.id), from, to,
+      limit: parseInt(tg.maxspeed, 10) || null, length: len });
+  });
+  return out;
+}
+
+/* ---------- Kaynak 2 içe aktarma ---------- */
+function parseB(text){
+  text = text.trim(); if (!text) return [];
+  if (text.startsWith('[')){
+    return JSON.parse(text).map((o,i) => mkB(o.name || o.ad, o.fromLat, o.fromLon, o.toLat, o.toLon, o.limit, i));
+  }
+  return text.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#')).map((l,i) => {
+    let p = l.split(';'); if (p.length < 6) p = l.split('\t'); if (p.length < 6) p = l.split(',');
+    if (p.length < 6) throw new Error((i+1) + '. satırda 6 alan yok');
+    return mkB(p[0], p[1], p[2], p[3], p[4], p[5], i);
+  });
+}
+function mkB(name, a, b, c, d, lim, i){
+  const n = v => parseFloat(String(v).replace(/\s/g,''));
+  const from = { lat:n(a), lon:n(b) }, to = { lat:n(c), lon:n(d) };
+  if ([from.lat, from.lon, to.lat, to.lon].some(isNaN)) throw new Error((i+1) + '. kayıtta koordinat okunamadı');
+  return { id:'b' + i, name:String(name||'Koridor').trim(), from, to, limit: parseInt(lim,10) || null, length: dist(from,to) };
+}
+
+/* ---------- Ses ---------- */
+let lastSpoken = {};
+function say(txt, key, gap){
+  if (!$('voice').checked || !('speechSynthesis' in window)) return;
+  const now = Date.now();
+  if (key && lastSpoken[key] && now - lastSpoken[key] < (gap||30000)) return;
+  if (key) lastSpoken[key] = now;
+  try{ const u = new SpeechSynthesisUtterance(txt); u.lang = 'tr-TR'; u.rate = 1.02; speechSynthesis.speak(u); }catch(e){}
+}
+
+/* ---------- Ölçüm motoru ---------- */
+let run = null;      // aktif koridor ölçümü
+let prev = null;     // önceki konum
+let mode = 'idle';
+const ENTRY = 120;   // m
+
+function onFix(f){   // f: {lat, lon, t(ms), speed(m/s|null), acc}
+  if (f.acc && f.acc > 60) return;
+  let v = f.speed;
+  if (prev){
+    const d = dist(prev, f), dt = (f.t - prev.t)/1000;
+    if (v == null && dt > 0) v = d/dt;
+    if (run) run.step(d, dt, v);
+  }
+  $('spdTxt').textContent = 'Anlık ' + (v == null ? '—' : Math.round(v*3.6)) + ' km/s';
+  prev = f;
+  if (!run){
+    const pool = corridors.concat(mode === 'sim' ? [DEMO] : []);
+    const c = pool.find(c => dist(f, c.from) < ENTRY);
+    if (c) startRun(c, f);
+  } else run.check(f);
+  render();
+}
+
+function startRun(c, f){
+  run = {
+    c, t0:f.t, now:f.t, traveled:0, startD:dist(f, c.to), confirmed:false,
+    stopStart:null, stopAvgBefore:null, stopSlackBefore:null, stopNote:null, v:0, finished:null,
+    get elapsed(){ return (this.now - this.t0)/1000; },
+    get avg(){ return this.elapsed > 5 ? this.traveled / this.elapsed * 3.6 : null; },
+    get slack(){ return this.c.limit ? this.elapsed - this.traveled / (this.c.limit/3.6) : null; },
+    step(d, dt, v){
+      this.traveled += d; this.now += dt*1000; this.v = v || 0;
+      const kmh = (v||0)*3.6;
+      if (kmh < 4){
+        if (this.stopStart == null){ this.stopStart = this.now; this.stopAvgBefore = this.avg; this.stopSlackBefore = this.slack; }
+      } else if (kmh > 10 && this.stopStart != null){
+        const dur = (this.now - this.stopStart)/1000;
+        if (dur >= 8 && this.stopAvgBefore != null){
+          const gain = this.slack - this.stopSlackBefore;
+          const a0 = Math.round(this.stopAvgBefore), a1 = Math.round(this.avg);
+          this.stopNote = { dur, a0, a1, gain, slack:this.slack };
+          say(fmtT(dur).replace(':',' dakika ') + ' saniye durdun. Ortalaman ' + a0 + "'dan " + a1 + "'e indi. " +
+              Math.round(gain) + ' saniye kazandın.' + (this.slack != null ? (this.slack >= 0 ? ' Toplam payın ' + Math.round(this.slack) + ' saniye.' : ' Hâlâ ' + Math.round(-this.slack) + ' saniye limitin üstündesin.') : ''));
+        }
+        this.stopStart = null;
+      }
+    },
+    check(f){
+      const dEnd = dist(f, this.c.to);
+      if (!this.confirmed && this.traveled > 250){
+        if (dEnd < this.startD - 100){ this.confirmed = true; announceStart(this.c); }
+        else { run = null; return; }       // ters yön
+      }
+      if (this.confirmed && (dEnd < ENTRY || this.traveled > this.c.length * 1.2)) finishRun();
+      else if (this.confirmed && this.c.limit && this.avg && this.elapsed > 60 && this.avg > this.c.limit && this.stopStart == null)
+        say('Dikkat, ortalaman ' + Math.round(this.avg) + '. Limit ' + this.c.limit + '.', 'over', 45000);
+    }
+  };
+}
+function announceStart(c){
+  say('Ortalama hız koridoru başladı. ' + (c.limit ? 'Limit ' + c.limit + '. ' : 'Limit bilinmiyor. ') + 'Uzunluk ' + (c.length/1000).toFixed(1).replace('.', ',') + ' kilometre.');
+}
+let lastResult = null;
+function finishRun(){
+  const r = run, avg = r.traveled / r.elapsed * 3.6;
+  lastResult = { name:r.c.name, avg:Math.round(avg), limit:r.c.limit, time:r.elapsed, slack:r.slack };
+  say('Koridor bitti. Ortalaman ' + Math.round(avg) + (r.c.limit ? (avg <= r.c.limit ? '. Limitin altındasın.' : '. Limitin üstündesin.') : '.'));
+  run = null;
+}
+
+/* ---------- Ekran ---------- */
+function showNote(el, txt, cls){ el.hidden = false; el.className = 'note ' + (cls||''); el.textContent = txt; }
+function render(){
+  const avgEl = $('avg'), sign = $('sign'), note = $('note');
+  if (!run || !run.confirmed){
+    $('cName').firstChild.textContent = run ? 'Girişte, yön doğrulanıyor…' : 'Koridor dışındasınız';
+    $('cSub').textContent = run ? run.c.name : (mode === 'idle' ? 'Başlatınca bir koridorun girişine yaklaştığında ölçüm kendiliğinden başlar.' : 'Koridor girişi bekleniyor.');
+    avgEl.textContent = '—'; avgEl.className = 'avg idle';
+    sign.className = 'sign none'; sign.textContent = '—';
+    $('prog').style.width = '0'; $('remain').textContent = '— km'; $('elapsed').textContent = '0:00';
+    $('slack').textContent = '—'; $('slack').className = ''; $('maxv').textContent = '—';
+    if (lastResult){
+      const ok = lastResult.limit ? lastResult.avg <= lastResult.limit : null;
+      showNote(note, 'Son koridor: ' + lastResult.name + ' — ortalama ' + lastResult.avg + ' km/s' + (lastResult.limit ? ', limit ' + lastResult.limit : '') + ', süre ' + fmtT(lastResult.time) + '.', ok === false ? 'bad' : 'good');
+    } else note.hidden = true;
+    return;
+  }
+  const c = run.c, avg = run.avg, el = run.elapsed, rem = Math.max(0, c.length - run.traveled);
+  $('cName').firstChild.textContent = c.name;
+  $('cSub').textContent = fmtKm(c.length) + ' koridor' + (c.sources.length > 1 ? ' · iki kaynakta doğrulandı' : '');
+  avgEl.textContent = avg == null ? '…' : Math.round(avg);
+  avgEl.className = 'avg ' + (avg == null || !c.limit ? 'idle' : avg > c.limit ? 'over' : avg > c.limit * 0.95 ? 'warn' : 'ok');
+  sign.className = 'sign' + (c.limit ? '' : ' none'); sign.textContent = c.limit || '?';
+  $('prog').style.width = Math.min(100, run.traveled / c.length * 100) + '%';
+  $('remain').textContent = fmtKm(rem);
+  $('elapsed').textContent = fmtT(el);
+  const s = run.slack;
+  $('slack').textContent = s == null ? '—' : fmtSlack(s) ;
+  $('slack').className = s == null ? '' : s >= 0 ? 'pos' : 'neg';
+  if (c.limit){
+    const minTotal = c.length / (c.limit/3.6), left = minTotal - el;
+    if (left <= 0) $('maxv').textContent = 'Yasal limit';
+    else { const mv = rem / left * 3.6; $('maxv').textContent = mv > c.limit ? 'Yasal limit' : Math.max(0, Math.round(mv)) + ' km/s'; }
+  } else $('maxv').textContent = '—';
+
+  if (run.stopStart != null && (run.now - run.stopStart) >= 8000){
+    const dur = (run.now - run.stopStart)/1000, gain = s - run.stopSlackBefore;
+    showNote(note, 'Duruyorsun: ' + fmtT(dur) + '. Bu molayla ' + Math.round(gain) + ' sn pay kazandın; ortalaman ' + Math.round(run.stopAvgBefore) + ' → ' + Math.round(avg) + ' km/s.', 'stop');
+  } else if (run.stopNote){
+    const n = run.stopNote;
+    showNote(note, 'Son mola ' + fmtT(n.dur) + ' sürdü: ortalama ' + n.a0 + ' → ' + n.a1 + ' km/s, +' + Math.round(n.gain) + ' sn pay.', 'stop');
+  } else note.hidden = true;
+}
+
+/* ---------- GPS ---------- */
+let watchId = null, wake = null;
+async function keepAwake(){ try{ wake = await navigator.wakeLock.request('screen'); }catch(e){} }
+function setGps(cls, txt){ $('gpsDot').className = 'dot ' + cls; $('gpsTxt').textContent = txt; }
+function startGps(){
+  stopAll();
+  if (!('geolocation' in navigator)){ setGps('err','Bu tarayıcıda konum yok'); return; }
+  mode = 'gps'; setGps('', 'Konum bekleniyor…');
+  say('Takip başladı.');
+  watchId = navigator.geolocation.watchPosition(p => {
+    setGps('on', 'GPS ±' + Math.round(p.coords.accuracy) + ' m');
+    onFix({ lat:p.coords.latitude, lon:p.coords.longitude, t:p.timestamp, speed:p.coords.speed, acc:p.coords.accuracy });
+  }, err => {
+    setGps('err', err.code === 1 ? 'Konum izni yok — sayfayı tarayıcıda aç' : 'Konum alınamadı');
+    if (err.code === 1){ showNote($('note'), 'Bu önizleme konum iznine kapalı. Gerçek sürüş için sayfayı Chrome\'da kendi adresinden aç. Şimdilik “Örnek sürüşü oynat” ile deneyebilirsin.', 'bad'); stopAll(true); }
+  }, { enableHighAccuracy:true, maximumAge:0, timeout:20000 });
+  keepAwake(); $('bStop').disabled = false; render();
+}
+
+/* ---------- Simülasyon ---------- */
+let simTimer = null;
+function startSim(){
+  stopAll();
+  mode = 'sim'; setGps('sim', 'Örnek sürüş (×10 hız)'); lastResult = null;
+  const c = DEMO, L = c.length, pre = 400;
+  // hız profili: hızlan → limit üstü seyir → 75 sn mola → normal
+  const prof = x => x < 0 ? 70 : x < 0.35 * L ? 104 : x < 0.55 * L ? 98 : 84;
+  let x = -pre, t = Date.now(), stopLeft = 75, stopped = false;
+  const at = x => { const k = x / L; return { lat: c.from.lat + (c.to.lat - c.from.lat) * k, lon: c.from.lon + (c.to.lon - c.from.lon) * k }; };
+  say('Örnek sürüş başladı.');
+  simTimer = setInterval(() => {
+    for (let i = 0; i < 1; i++){
+      let v;
+      if (!stopped && x > 0.42 * L && stopLeft > 0){ v = 0; stopLeft--; if (stopLeft <= 0) stopped = true; }
+      else v = prof(x) + (Math.sin(t/7000) * 3);
+      const ms = v / 3.6; x += ms; t += 1000;
+      onFix({ ...at(x), t, speed: ms, acc: 8 });
+      if (x > L + 300){ stopAll(); setGps('', 'Örnek sürüş bitti'); render(); return; }
+    }
+  }, 100);
+  $('bStop').disabled = false; render();
+}
+
+function stopAll(keepNote){
+  if (watchId != null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
+  if (simTimer){ clearInterval(simTimer); simTimer = null; }
+  try{ wake && wake.release(); }catch(e){} wake = null;
+  run = null; prev = null; mode = 'idle'; $('bStop').disabled = true;
+  if (!keepNote) setGps('', 'Konum kapalı');
+}
+
+/* ---------- Olaylar ---------- */
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
+  ['drive','list','src'].forEach(p => $('p-' + p).hidden = p !== b.dataset.tab);
+}));
+$('bGps').onclick = startGps;
+$('bSim').onclick = startSim;
+$('bStop').onclick = () => { stopAll(); render(); };
+$('bOsm').onclick = loadOsm;
+$('bImport').onclick = () => {
+  try{
+    const arr = parseB($('bText').value);
+    bList = arr; store.set('eds_b', bList); merge();
+    const both = corridors.filter(c => c.sources.length > 1).length;
+    showNote($('impNote'), arr.length + ' koridor alındı. ' + both + ' tanesi OSM ile eşleşti' + (corridors.some(c => c.conflict) ? '; limit farkı olanlar listede işaretli.' : '.'), 'good');
+  } catch(e){ showNote($('impNote'), 'Liste okunamadı: ' + e.message + '. Satır biçimi: ad; enlem; boylam; enlem; boylam; limit', 'bad'); }
+};
+$('bClear').onclick = () => { bList = []; store.set('eds_b', []); $('bText').value = ''; merge(); };
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && mode !== 'idle') keepAwake(); });
+
+merge(); render();
+window.__eds = { dist, parseB, parseOsm };
+})();
+</script>
+
+<script>if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}</script>
+</body>
+</html>
