@@ -1,0 +1,31 @@
+name: EGM keşif
+on:
+  push:
+    paths: ['.github/workflows/egm-kesif.yml']
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: EGM harita sayfasını indir
+        run: |
+          mkdir -p out && cd out
+          UA="Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36"
+          BASE="https://onlineislemler.egm.gov.tr/trafik/sayfalar/edsharita.aspx"
+          curl -sSL -A "$UA" -D headers.txt -o page.html --max-time 60 "$BASE" || echo "CURL_FAIL $?" > fail.txt
+          ls -la; head -c 3000 page.html || true
+          # sayfadaki script ve servis yollarını topla
+          grep -oiE '(src|href)="[^"]+\.(js|aspx|ashx|asmx|json|kml)[^"]*"' page.html | sort -u > refs.txt || true
+          grep -oiE '[A-Za-z0-9_/.-]+\.(asmx|ashx|svc)[A-Za-z0-9_/?=&.-]*|WebMethod|PageMethods\.[A-Za-z]+|\$\.ajax|url *: *"[^"]+"' page.html | sort -u > calls.txt || true
+          cat refs.txt calls.txt
+          # aynı sunucudaki script dosyalarını indir
+          mkdir -p js
+          grep -oiE 'src="[^"]+\.js[^"]*"' page.html | sed -E 's/src="//;s/"$//' | while read -r s; do
+            case "$s" in http*) u="$s";; /*) u="https://onlineislemler.egm.gov.tr$s";; *) u="https://onlineislemler.egm.gov.tr/trafik/sayfalar/$s";; esac
+            case "$u" in *egm.gov.tr*) f="js/$(echo "$s" | tr '/?=&' '____' | cut -c1-120)"; curl -sSL -A "$UA" --max-time 30 -o "$f" "$u" || true;; esac
+          done
+          ls -la js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: egm
+          path: out
