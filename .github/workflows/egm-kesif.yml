@@ -3,6 +3,8 @@ on:
   push:
     paths: ['.github/workflows/egm-kesif.yml']
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   probe:
     runs-on: ubuntu-latest
@@ -25,7 +27,11 @@ jobs:
             case "$u" in *egm.gov.tr*) f="js/$(echo "$s" | tr '/?=&' '____' | cut -c1-120)"; curl -sSL -A "$UA" --max-time 30 -o "$f" "$u" || true;; esac
           done
           ls -la js
-      - uses: actions/upload-artifact@v4
-        with:
-          name: egm
-          path: out
+      - name: Sonuçları kesif dalına yaz
+        run: |
+          cd out
+          git init -q -b egm-kesif
+          git config user.name github-actions; git config user.email actions@github.com
+          git add -A; git commit -q -m "EGM keşif sonucu" || true
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" egm-kesif
+# r2
