@@ -94,6 +94,49 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
 .wi-out{font-size:15px}
 .wi-out strong{font:700 20px var(--display);font-variant-numeric:tabular-nums}
 .item .lim{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--muted)}
+/* Leaflet çekirdek stilleri (kısaltılmış) */
+.leaflet-pane,.leaflet-tile,.leaflet-marker-icon,.leaflet-tile-container,.leaflet-pane>svg,.leaflet-pane>canvas,.leaflet-zoom-box,.leaflet-image-layer,.leaflet-layer{position:absolute;left:0;top:0}
+.leaflet-container{overflow:hidden;touch-action:none;background:#1b2427;outline:0;font:12px var(--body)}
+.leaflet-container img.leaflet-tile{max-width:none!important;max-height:none!important;width:256px;height:256px;user-select:none;-webkit-user-drag:none}
+.leaflet-tile{visibility:hidden}.leaflet-tile-loaded{visibility:inherit}
+.leaflet-zoom-animated{transform-origin:0 0}
+.leaflet-zoom-anim .leaflet-zoom-animated{transition:transform .25s cubic-bezier(0,0,.25,1)}
+.leaflet-zoom-anim .leaflet-tile,.leaflet-pan-anim .leaflet-tile{transition:none}
+.leaflet-zoom-anim .leaflet-zoom-hide{visibility:hidden}
+.leaflet-pane{z-index:400}.leaflet-tile-pane{z-index:200}.leaflet-overlay-pane{z-index:400}.leaflet-marker-pane{z-index:600}.leaflet-tooltip-pane{z-index:650}.leaflet-popup-pane{z-index:700}
+.leaflet-pane>svg path{pointer-events:none}.leaflet-pane>svg path.leaflet-interactive{pointer-events:auto;cursor:pointer}
+.leaflet-top,.leaflet-bottom{position:absolute;z-index:1000;pointer-events:none}
+.leaflet-top{top:0}.leaflet-right{right:0}.leaflet-bottom{bottom:0}.leaflet-left{left:0}
+.leaflet-control{position:relative;z-index:800;pointer-events:auto;float:left;clear:both}
+.leaflet-right .leaflet-control{float:right;margin-right:8px}.leaflet-top .leaflet-control{margin-top:8px}.leaflet-bottom .leaflet-control{margin-bottom:0}.leaflet-left .leaflet-control{margin-left:8px}
+.leaflet-bar{border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.leaflet-bar a{display:block;width:34px;height:34px;line-height:34px;text-align:center;text-decoration:none;background:var(--panel);color:var(--fg);font:700 18px var(--body)}
+.leaflet-bar a+a{border-top:1px solid var(--line)}
+.leaflet-control-attribution{background:rgba(13,18,20,.75);color:var(--muted);padding:1px 6px;font-size:10.5px;margin:0!important}
+.leaflet-control-attribution a{color:var(--muted)}
+.leaflet-tooltip{position:absolute;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 7px;font:600 12px var(--body);white-space:nowrap;pointer-events:none}
+/* Rota */
+.field{display:flex;gap:8px}
+.field input{flex:1;min-width:0;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:12px;font:15px var(--body)}
+.field .btn{flex:0 0 auto;padding:12px 16px}
+.places{display:flex;gap:8px;flex-wrap:wrap}
+.places .btn{flex:1 1 120px;text-align:left;font-weight:600}
+.places .btn small{display:block;font-weight:400;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.results{display:flex;flex-direction:column;gap:6px}
+.res{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.res p{margin:0;font-size:14px;overflow-wrap:anywhere}
+.res .acts{display:flex;gap:6px;flex-wrap:wrap}
+.res .acts .btn{flex:1 1 90px;padding:9px 8px;font-size:13.5px}
+#map{height:300px;border-radius:14px;border:1px solid var(--line)}
+.rsum{display:flex;flex-wrap:wrap;gap:8px}
+.rsum .cell{flex:1 1 100px}
+.rlist{display:flex;flex-direction:column;gap:8px}
+.ritem{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 13px}
+.ritem .km{font:700 20px var(--display);font-variant-numeric:tabular-nums;color:var(--accent);min-width:58px}
+.ritem .km small{display:block;font:400 11px var(--body);color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.ritem .t{min-width:0}
+.ritem .t strong{display:block;font-size:14.5px;overflow-wrap:anywhere}
+.ritem .t span{font-size:12.5px;color:var(--muted)}
 @media (prefers-reduced-motion:reduce){.bar i{transition:none}}
 </style>
 
@@ -110,6 +153,7 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
 
   <div class="tabs" role="tablist">
     <button role="tab" aria-selected="true" data-tab="drive" id="t-drive">Sürüş</button>
+    <button role="tab" aria-selected="false" data-tab="route" id="t-route">Rota</button>
     <button role="tab" aria-selected="false" data-tab="list" id="t-list">Koridorlar</button>
     <button role="tab" aria-selected="false" data-tab="src" id="t-src">Kaynaklar</button>
   </div>
@@ -157,6 +201,29 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
     <p class="help">Zaman payı, ortalamanı limitte tutman için elinde kalan saniyedir. Durduğunda bu pay büyür; tekrar yola çıktığında ne kadar kazandığını sesli söylerim. Ölçüm GPS'e dayanır ve resmi cihazla birebir aynı olmayabilir; kararı her zaman levhalar ve yasal limit belirler.</p>
   </section>
 
+  <!-- ROTA -->
+  <section id="p-route" class="wrap" hidden>
+    <h2>Nereye gidiyoruz?</h2>
+    <div class="places">
+      <button class="btn" id="goHome">Ev<small id="homeTxt">Kayıtlı değil</small></button>
+      <button class="btn" id="goWork">İş<small id="workTxt">Kayıtlı değil</small></button>
+    </div>
+    <form class="field" id="qForm">
+      <input id="q" type="search" placeholder="Adres veya yer ara (ör. Kızılay, Ankara)" autocomplete="off" enterkeyhint="search">
+      <button class="btn primary" type="submit">Ara</button>
+    </form>
+    <div class="results" id="results"></div>
+    <div class="note" id="rNote" hidden></div>
+    <div id="map" hidden></div>
+    <div class="rsum" id="rSum" hidden>
+      <div class="cell"><span>Mesafe</span><b id="rDist">—</b></div>
+      <div class="cell"><span>Süre</span><b id="rTime">—</b></div>
+      <div class="cell"><span>Koridor</span><b id="rCount">—</b></div>
+    </div>
+    <div class="rlist" id="rList"></div>
+    <p class="help">Başlangıç noktası anlık konumunuzdur. Yol tarifi için Google Haritalar ya da Yandex'i kullanmaya devam edin; bu ekran rotanızdaki koridorları ve limitlerini gösterir. Yaklaşırken sesli haber verilir.</p>
+  </section>
+
   <!-- KORİDORLAR -->
   <section id="p-list" class="wrap" hidden>
     <h2>Koridorlar</h2>
@@ -184,6 +251,7 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
   </section>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 (() => {
 "use strict";
@@ -370,10 +438,28 @@ function onFix(f){   // f: {lat, lon, t(ms), speed(m/s|null), acc}
   prev = f;
   if (!run){
     const pool = corridors.concat(mode === 'sim' ? [DEMO] : []);
+    approach(f, pool);
     const c = pool.find(c => dist(f, c.from) < ENTRY);
     if (c) startRun(c, f);
   } else run.check(f);
   render();
+}
+
+/* Koridora yaklaşma uyarısı */
+const near = {}, announced = new Set();
+function approach(f, pool){
+  pool.forEach(c => {
+    const k = key(c), d = dist(f, c.from);
+    if (d < 1600){
+      if (!announced.has(k) && near[k] != null && d < near[k] - 25 && d > ENTRY * 2){
+        announced.add(k);
+        const km = (Math.round(d / 100) / 10).toString().replace('.', ',');
+        say(km + ' kilometre sonra ortalama hız koridoru. ' + (c.limit ? 'Limit ' + c.limit + ', ' : '') +
+            'uzunluk ' + (c.length / 1000).toFixed(1).replace('.', ',') + ' kilometre.');
+      }
+      near[k] = d;
+    } else { delete near[k]; if (d > 5000) announced.delete(k); }
+  });
 }
 
 function startRun(c, f){
@@ -517,6 +603,151 @@ $('sign').addEventListener('click', toggleLimEdit);
 $('sign').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggleLimEdit(); } });
 $('limSave').addEventListener('click', () => { if (run && setLimit(run.c, $('limIn').value)) $('limEdit').hidden = true; });
 
+/* ---------- Rota ---------- */
+let map = null, mapLayers = null;
+let places = store.get('eds_places') || {};
+function renderPlaces(){
+  $('homeTxt').textContent = places.home ? places.home.label : 'Kayıtlı değil';
+  $('workTxt').textContent = places.work ? places.work.label : 'Kayıtlı değil';
+}
+const shortName = s => s.split(',').slice(0, 2).join(',').trim();
+function rNote(txt, cls){ showNote($('rNote'), txt, cls); }
+
+async function geocode(q){
+  const u = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=tr&accept-language=tr&q=' + encodeURIComponent(q);
+  const r = await fetch(u, { headers:{ 'Accept':'application/json' } });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return (await r.json()).map(x => ({ lat:+x.lat, lon:+x.lon, label:shortName(x.display_name), full:x.display_name }));
+}
+function getHere(){
+  return new Promise((res, rej) => {
+    if (prev && Date.now() - prev.t < 60000) return res(prev);
+    if (!('geolocation' in navigator)) return rej(new Error('Konum yok'));
+    navigator.geolocation.getCurrentPosition(p => res({ lat:p.coords.latitude, lon:p.coords.longitude }),
+      e => rej(new Error(e.code === 1 ? 'Konum izni verilmedi' : 'Konum alınamadı')), { enableHighAccuracy:true, timeout:15000, maximumAge:30000 });
+  });
+}
+function showResults(list){
+  const R2 = $('results'); R2.textContent = '';
+  if (!list.length){ rNote('Sonuç bulunamadı. Daha açık yazmayı deneyin: “Mahalle, İlçe, İl”.', 'bad'); return; }
+  $('rNote').hidden = true;
+  list.forEach(p => {
+    const d = document.createElement('div'); d.className = 'res';
+    const t = document.createElement('p'); t.textContent = p.full;
+    const a = document.createElement('div'); a.className = 'acts';
+    const mk = (txt, fn, primary) => { const b = document.createElement('button'); b.className = 'btn' + (primary ? ' primary' : ''); b.textContent = txt; b.onclick = fn; a.append(b); };
+    mk('Rota çiz', () => routeTo(p), true);
+    mk('Ev yap', () => { places.home = p; store.set('eds_places', places); renderPlaces(); rNote('Ev kaydedildi: ' + p.label, 'good'); });
+    mk('İş yap', () => { places.work = p; store.set('eds_places', places); renderPlaces(); rNote('İş kaydedildi: ' + p.label, 'good'); });
+    d.append(t, a); R2.append(d);
+  });
+}
+
+function nearestOnLine(p, pts, cum){
+  const kx = Math.cos(toRad(p.lat)) * 111320, ky = 110540;
+  let best = { d:Infinity, along:0 };
+  for (let i = 0; i < pts.length - 1; i++){
+    const ax = (pts[i].lon - p.lon) * kx, ay = (pts[i].lat - p.lat) * ky;
+    const bx = (pts[i+1].lon - p.lon) * kx, by = (pts[i+1].lat - p.lat) * ky;
+    const dx = bx - ax, dy = by - ay, L2 = dx*dx + dy*dy;
+    let t = L2 ? -(ax*dx + ay*dy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+    const x = ax + t*dx, y = ay + t*dy, d = Math.hypot(x, y);
+    if (d < best.d) best = { d, i, along: cum[i] + t * (cum[i+1] - cum[i]) };
+  }
+  return best;
+}
+function corridorsOnRoute(pts){
+  const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i-1] + dist(pts[i-1], pts[i]));
+  let mnLa = 90, mxLa = -90, mnLo = 180, mxLo = -180;
+  pts.forEach(p => { mnLa = Math.min(mnLa, p.lat); mxLa = Math.max(mxLa, p.lat); mnLo = Math.min(mnLo, p.lon); mxLo = Math.max(mxLo, p.lon); });
+  const pad = 0.01, inBox = q => q.lat > mnLa - pad && q.lat < mxLa + pad && q.lon > mnLo - pad && q.lon < mxLo + pad;
+  const hits = [];
+  corridors.forEach(c => {
+    if (!inBox(c.from) || !inBox(c.to)) return;
+    const a = nearestOnLine(c.from, pts, cum); if (a.d > 150) return;
+    const b = nearestOnLine(c.to, pts, cum); if (b.d > 150 || b.along <= a.along) return;
+    hits.push({ c, at:a.along, i0:a.i, i1:b.i + 1 });
+  });
+  return { hits: hits.sort((x, y) => x.at - y.at), total: cum[cum.length - 1] };
+}
+
+async function routeTo(dest){
+  $('results').textContent = ''; $('rList').textContent = ''; $('rSum').hidden = true;
+  if (!corridors.length) rNote('Koridor listesi boş. Önce Kaynaklar sekmesinden OSM verisini çekin; rota yine çizilir ama koridor eşleşmez.', 'bad');
+  else rNote('Rota hesaplanıyor: ' + dest.label + '…');
+  let here;
+  try{ here = await getHere(); }
+  catch(e){ rNote(e.message + '. Rota için konum gerekli; sayfayı Chrome\'da açıp konum izni verin.', 'bad'); return; }
+  let j;
+  try{
+    const u = 'https://router.project-osrm.org/route/v1/driving/' + here.lon + ',' + here.lat + ';' + dest.lon + ',' + dest.lat + '?overview=full&geometries=geojson';
+    const r = await fetch(u); if (!r.ok) throw new Error('HTTP ' + r.status);
+    j = await r.json(); if (j.code !== 'Ok' || !j.routes.length) throw new Error(j.code || 'rota yok');
+  } catch(e){ rNote('Rota hesaplanamadı (' + e.message + '). Biraz sonra tekrar deneyin.', 'bad'); return; }
+  const rt = j.routes[0];
+  const pts = rt.geometry.coordinates.map(([lon, lat]) => ({ lat, lon }));
+  const { hits } = corridorsOnRoute(pts);
+  $('rNote').hidden = true;
+  $('rSum').hidden = false;
+  $('rDist').textContent = Math.round(rt.distance / 1000) + ' km';
+  const mins = Math.round(rt.duration / 60);
+  $('rTime').textContent = (mins >= 60 ? Math.floor(mins / 60) + ' sa ' : '') + (mins % 60) + ' dk';
+  $('rCount').textContent = hits.length;
+  const L = $('rList');
+  if (!hits.length){
+    const n = document.createElement('div'); n.className = 'note';
+    n.textContent = corridors.length ? 'Bu rotada bilinen ortalama hız koridoru yok.' : 'Koridor verisi yüklenmediği için eşleşme yapılamadı.';
+    L.append(n);
+  }
+  hits.forEach(h => {
+    const it = document.createElement('div'); it.className = 'ritem';
+    const km = document.createElement('div'); km.className = 'km';
+    km.textContent = Math.round(h.at / 1000) + ' km'; const sm = document.createElement('small'); sm.textContent = 'sonra'; km.append(sm);
+    const t = document.createElement('div'); t.className = 't';
+    const st = document.createElement('strong'); st.textContent = h.c.name;
+    const sp = document.createElement('span'); sp.textContent = fmtKm(h.c.length) + ' boyunca' + (h.c.sources.length > 1 ? ' · iki kaynak ✓' : '');
+    t.append(st, sp);
+    const s = document.createElement('div'); s.className = 'mini' + (h.c.limit ? '' : ' none'); s.textContent = h.c.limit || '?';
+    s.style.cssText = 'width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font:700 17px var(--display);' +
+      (h.c.limit ? 'background:#fff;border:5px solid var(--sign);color:#111' : 'background:var(--bg);border:5px solid var(--line);color:var(--muted)');
+    it.append(km, t, s); L.append(it);
+  });
+  if (hits.length) say('Rotanızda ' + hits.length + ' ortalama hız koridoru var. İlki ' + Math.round(hits[0].at / 1000) + ' kilometre sonra' + (hits[0].c.limit ? ', limit ' + hits[0].c.limit + '.' : '.'));
+  drawMap(pts, hits, here, dest);
+}
+function drawMap(pts, hits, here, dest){
+  if (typeof window.L === 'undefined') return;
+  const el = $('map'); el.hidden = false;
+  if (!map){
+    map = window.L.map(el, { zoomControl:true, attributionControl:true });
+    window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:18, attribution:'© OpenStreetMap' }).addTo(map);
+  }
+  if (mapLayers) mapLayers.remove();
+  mapLayers = window.L.layerGroup().addTo(map);
+  const ll = pts.map(p => [p.lat, p.lon]);
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const over = getComputedStyle(document.documentElement).getPropertyValue('--sign').trim();
+  window.L.polyline(ll, { color:accent, weight:5, opacity:.9 }).addTo(mapLayers);
+  hits.forEach(h => {
+    window.L.polyline(ll.slice(h.i0, h.i1 + 1), { color:over, weight:8, opacity:.95 }).addTo(mapLayers);
+    window.L.circleMarker([h.c.from.lat, h.c.from.lon], { radius:7, color:over, fillColor:'#fff', fillOpacity:1, weight:3 })
+      .bindTooltip((h.c.limit || '?') + ' km/s', { permanent:true, direction:'top', offset:[0,-8] }).addTo(mapLayers);
+  });
+  window.L.circleMarker([here.lat, here.lon], { radius:6, color:'#fff', fillColor:accent, fillOpacity:1, weight:2 }).addTo(mapLayers);
+  window.L.circleMarker([dest.lat, dest.lon], { radius:7, color:'#fff', fillColor:'#111', fillOpacity:1, weight:3 }).addTo(mapLayers);
+  setTimeout(() => { map.invalidateSize(); map.fitBounds(window.L.latLngBounds(ll), { padding:[20,20] }); }, 30);
+}
+$('qForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const q = $('q').value.trim(); if (!q) return;
+  rNote('Aranıyor…');
+  try{ showResults(await geocode(q)); }
+  catch(err){ rNote('Arama yapılamadı. Bu önizlemede dış servisler kapalı; sayfayı kendi adresinden açınca çalışır.', 'bad'); }
+});
+$('goHome').onclick = () => places.home ? routeTo(places.home) : rNote('Ev kayıtlı değil. Adresinizi arayıp sonuçta “Ev yap”a dokunun.', 'bad');
+$('goWork').onclick = () => places.work ? routeTo(places.work) : rNote('İş kayıtlı değil. Adresinizi arayıp sonuçta “İş yap”a dokunun.', 'bad');
+renderPlaces();
+
 /* ---------- GPS ---------- */
 let watchId = null, wake = null;
 async function keepAwake(){ try{ wake = await navigator.wakeLock.request('screen'); }catch(e){} }
@@ -571,7 +802,8 @@ function stopAll(keepNote){
 /* ---------- Olaylar ---------- */
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
-  ['drive','list','src'].forEach(p => $('p-' + p).hidden = p !== b.dataset.tab);
+  ['drive','route','list','src'].forEach(p => $('p-' + p).hidden = p !== b.dataset.tab);
+  if (b.dataset.tab === 'route' && map) setTimeout(() => map.invalidateSize(), 50);
 }));
 $('bGps').onclick = startGps;
 $('bSim').onclick = startSim;
