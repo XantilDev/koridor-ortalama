@@ -142,7 +142,7 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
       <div class="whatif" id="whatif" hidden>
         <div class="wi-h"><span>Kalan yolu bu hızla gidersem</span><b id="wiV">— km/s</b></div>
         <input type="range" id="wiR" min="30" max="90" step="5" value="90" aria-label="Kalan yol için hız">
-        <div class="wi-scale"><span id="wiMin">30</span><span id="wiMax">90 · limit</span></div>
+        <div class="wi-scale"><span id="wiMin">30</span><span id="wiLim">90 limit</span><span id="wiMax">99 tolerans</span></div>
         <div class="wi-out" id="wiOut"></div>
       </div>
       <div class="note" id="note" hidden></div>
@@ -476,20 +476,33 @@ function renderWhatIf(c, el, rem){
   const box = $('whatif'), r = $('wiR');
   if (!c.limit){ box.hidden = true; return; }
   box.hidden = false;
-  const max = c.limit;
-  if (+r.max !== max){ r.max = max; $('wiMax').textContent = max + ' · limit'; }
-  if (!wiTouched || +r.value > max) r.value = max;
+  const max = Math.floor(c.limit * 1.1);
+  if (+r.max !== max){
+    r.max = max; r.step = 1;
+    $('wiMax').textContent = max + ' tolerans'; $('wiLim').textContent = c.limit + ' limit';
+    const p = (c.limit - 30) / (max - 30) * 100;
+    r.style.background = 'linear-gradient(90deg,var(--line) ' + p + '%,var(--warn) ' + p + '%)';
+  }
+  if (!wiTouched || +r.value > max) r.value = c.limit;
   const v = +r.value;
-  $('wiV').textContent = v + ' km/s';
+  $('wiV').textContent = v + ' km/s' + (v > c.limit ? ' · limit üstü' : '');
+  $('wiV').style.color = v > c.limit ? 'var(--warn)' : 'var(--accent)';
   const tRem = rem / (v/3.6);
   const fin = (run.traveled + rem) / (el + tRem) * 3.6;
   const out = $('wiOut'); out.textContent = '';
   const s1 = document.createElement('div');
   s1.append('Bitiş ortalaman ≈ ');
   const b = document.createElement('strong'); b.textContent = Math.round(fin) + ' km/s';
-  b.className = fin > c.limit ? 'neg' : 'pos'; s1.append(b);
+  const tol = c.limit * 1.1;
+  b.className = fin > tol ? 'neg' : fin > c.limit ? '' : 'pos';
+  if (fin > c.limit && fin <= tol) b.style.color = 'var(--warn)'; else b.style.color = '';
+  s1.append(b);
   const s2 = document.createElement('div'); s2.style.color = 'var(--muted)'; s2.style.fontSize = '13.5px';
-  s2.textContent = 'Kalan ' + fmtKm(rem) + ' · yaklaşık ' + fmtT(tRem) + ' dk' + (fin > c.limit ? ' · ortalama limitin üstünde kalır' : ' · limitin altında biter');
+  s2.textContent = 'Kalan ' + fmtKm(rem) + ' · yaklaşık ' + fmtT(tRem) + ' dk · ' +
+    (fin > tol ? 'ceza eşiğinin üstünde' : fin > c.limit ? 'limitin üstünde, tolerans içinde' : 'limitin altında biter');
+  const s3 = document.createElement('div'); s3.style.color = 'var(--muted)'; s3.style.fontSize = '12.5px';
+  s3.textContent = v > c.limit ? 'Tolerans ölçüm payıdır; levhadaki limit ' + c.limit + '. Koridor içinde anlık radar da olabilir.' : '';
+  out.append(s1, s2); if (s3.textContent) out.append(s3); return;
   out.append(s1, s2);
 }
 $('wiR').addEventListener('input', () => { wiTouched = true; if (run && run.confirmed) render(); });
