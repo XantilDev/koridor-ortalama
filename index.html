@@ -350,7 +350,7 @@ function renderList(){
 }
 
 /* ---------- OSM (Kaynak 1) ---------- */
-async function loadOsm(){
+async function loadOsm(quiet){
   $('osmState').textContent = 'Yükleniyor…';
   const q = '[out:json][timeout:60];area["ISO3166-1"="TR"][admin_level=2]->.tr;rel["type"="enforcement"]["enforcement"="average_speed"](area.tr);out body;>;out skel qt;';
   try{
@@ -364,8 +364,10 @@ async function loadOsm(){
     osmMeta = { t: Date.now() };
     store.set('eds_osm', osmList); store.set('eds_osm_meta', osmMeta);
     merge();
+    return true;
   } catch(e){
     $('osmState').textContent = 'Ulaşılamadı';
+    if (quiet) return false;
     showNote($('impNote'), 'OSM verisine bu ortamdan ulaşılamadı. Sayfayı kendi adresinden (ör. GitHub Pages) açınca çalışır; burada ikinci listeyi veya örnek sürüşü kullanabilirsin.', 'bad');
     $('t-src').click();
   }
@@ -673,6 +675,10 @@ function corridorsOnRoute(pts){
 
 async function routeTo(dest){
   $('results').textContent = ''; $('rList').textContent = ''; $('rSum').hidden = true;
+  if (!osmMeta || Date.now() - osmMeta.t > 3 * 864e5){
+    rNote('Koridor listesi güncelleniyor…');
+    await loadOsm(true);
+  }
   if (!corridors.length) rNote('Koridor listesi boş. Önce Kaynaklar sekmesinden OSM verisini çekin; rota yine çizilir ama koridor eşleşmez.', 'bad');
   else rNote('Rota hesaplanıyor: ' + dest.label + '…');
   let here;
@@ -808,7 +814,7 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
 $('bGps').onclick = startGps;
 $('bSim').onclick = startSim;
 $('bStop').onclick = () => { stopAll(); render(); };
-$('bOsm').onclick = loadOsm;
+$('bOsm').onclick = () => loadOsm(false);
 $('bImport').onclick = () => {
   try{
     const arr = parseB($('bText').value);
@@ -821,6 +827,7 @@ $('bClear').onclick = () => { bList = []; store.set('eds_b', []); $('bText').val
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && mode !== 'idle') keepAwake(); });
 
 merge(); render();
+if (!osmMeta || Date.now() - osmMeta.t > 3 * 864e5) loadOsm(true);
 window.__eds = { dist, parseB, parseOsm };
 })();
 </script>
