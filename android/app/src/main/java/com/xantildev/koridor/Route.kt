@@ -176,7 +176,8 @@ object RouteSession {
             }
             busy = false
             if (p == null) {
-                msg = "Paylaşılan linkten konum okunamadı. Yerin adını arama kutusuna yazmayı dene."
+                msg = "Paylaşılan linkten konum okunamadı. Yerin adını ya da adresini arama kutusuna yazmayı dene." +
+                    if (lastSharedDebug.isNotBlank()) "\n(Link: $lastSharedDebug)" else ""
                 msgBad = true
                 query = text.lineSequence().firstOrNull { it.isNotBlank() && !it.contains("http") }?.trim() ?: ""
             } else {
@@ -202,39 +203,95 @@ object RouteSession {
         return null
     }
 
-    private suspend fun resolveShared(text: String): Places.Place? = withContext(Dispatchers.IO) {
-        val url = Regex("https?://\\S+").find(text)?.value ?: return@withContext null
-        val name = text.substringBefore(url).lineSequence().map { it.trim().trimEnd(',') }
-            .firstOrNull { it.isNotBlank() } ?: "Paylaşılan yer"
-        var u = url
-        var body = ""
-        for (i in 0 until 8) {
-            coordsIn(u)?.let { return@withContext Places.Place(name, "Google Haritalar", it.lat, it.lon, null) }
+    private const val DESKTOP_UA =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36"
+
+    /** Google Haritalar sayfasının başlangıç durumundaki merkez: [[[mesafe, boylam, enlem]... */
+    private val reAppState = Regex("APP_INITIALIZATION_STATE=\\[\\[\\[(-?\\d+(?:\\.\\d+)?),(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)\\]")
+    private val reOgTitle = Regex("<meta[^>]+(?:property|itemprop)=\"(?:og:title|name)\"[^>]+content=\"([^\"]+)\"|<meta[^>]+content=\"([^\"]+)\"[^>]+(?:property|itemprop)=\"(?:og:title|name)\"")
+
+    private fun appState(body: String): LatLng? {
+        val m = reAppState.find(body) ?: return null
+        val lon = m.groupValues[2].toDoubleOrNull() ?: return null
+        val lat = m.groupValues[3].toDoubleOrNull() ?: return null
+        return if (lat in 35.0..43.0 && lon in 25.0..45.5) LatLng(lat, lon) else null
+    }
+
+    /** Yönlendirmeleri tek tek izler; son adresi ve sayfa içeriğini döner. */
+    private fun follow(start: String): Pair<String, String> {
+        var u = start
+        for (i in 0 until 10) {
             val c = URL(u).openConnection() as HttpURLConnection
             c.instanceFollowRedirects = false
             c.connectTimeout = 15000
             c.readTimeout = 20000
-            c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36")
-            c.setRequestProperty("Accept-Language", "tr")
+            c.setRequestProperty("User-Agent", DESKTOP_UA)
+            c.setRequestProperty("Accept-Language", "tr-TR,tr;q=0.9")
+            c.setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
             val code = c.responseCode
             val loc = c.getHeaderField("Location")
             if (code in 300..399 && loc != null) {
                 u = URL(URL(u), loc).toString()
                 c.disconnect()
+                if (coordsIn(u) != null) return u to ""
                 continue
             }
-            body = try {
+            val body = try {
                 c.inputStream.bufferedReader().use { it.readText() }
             } catch (_: IOException) {
                 ""
             }
             c.disconnect()
-            break
+            return u to body
         }
-        val ll = coordsIn(u) ?: coordsIn(body)
-        if (ll != null) return@withContext Places.Place(name, "Google Haritalar", ll.lat, ll.lon, null)
-        // Koordinat yoksa isimle ara
-        Places.search(name, null).firstOrNull()
+        return u to ""
+    }
+
+    var lastSharedDebug: String = ""
+
+    private suspend fun resolveShared(text: String): Places.Place? = withContext(Dispatchers.IO) {
+        val url = Regex("https?://\\S+").find(text)?.value ?: return@withContext null
+        var name = text.substringBefore(url).lineSequence().map { it.trim().trimEnd(',') }
+            .firstOrNull { it.isNotBlank() }
+        fun place(ll: LatLng) = Places.Place(name ?: "Paylaşılan yer", "Google Haritalar", ll.lat, ll.lon, null)
+
+        coordsIn(url)?.let { return@withContext place(it) }
+        val (finalUrl, body) = follow(url)
+        lastSharedDebug = finalUrl.take(160)
+        if (name == null) {
+            reOgTitle.find(body)?.let { m ->
+                name = (m.groupValues[1].ifBlank { m.groupValues[2] }).substringBefore(" · ").trim().ifBlank { null }
+            }
+            if (name == null) {
+                Regex("/maps/place/([^/@?]+)").find(finalUrl)?.let {
+                    name = java.net.URLDecoder.decode(it.groupValues[1], "UTF-8").replace('+', ' ')
+                }
+            }
+        }
+        (coordsIn(finalUrl) ?: coordsIn(body) ?: appState(body))?.let { return@withContext place(it) }
+
+        // Firma kimliği (cid/ftid) varsa haritalar sayfasını açıp merkezi oku
+        val cid = Regex("[?&]cid=(\\d+)").find(finalUrl)?.groupValues?.get(1)
+        val ftid = Regex("[?&]ftid=([0-9a-fx:]+)").find(finalUrl)?.groupValues?.get(1)
+        val alt = when {
+            cid != null -> "https://www.google.com/maps?cid=$cid&hl=tr"
+            ftid != null -> "https://www.google.com/maps/place/data=!4m2!3m1!1s$ftid?hl=tr"
+            else -> null
+        }
+        if (alt != null) {
+            val (u2, b2) = follow(alt)
+            (coordsIn(u2) ?: coordsIn(b2) ?: appState(b2))?.let { return@withContext place(it) }
+        }
+
+        // Son çare: linkteki arama metni ya da isimle adres araması
+        val q = Regex("[?&]q=([^&]+)").find(finalUrl)?.groupValues?.get(1)
+            ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
+        val n = name
+        for (term in listOfNotNull(q, n).distinct()) {
+            val hit = Places.search(term, null).firstOrNull()
+            if (hit != null) return@withContext hit.copy(name = n ?: hit.name)
+        }
+        null
     }
 
     /** Yol tarifini Google Haritalar'da açar (dönüş dönüş yönlendirme için). */

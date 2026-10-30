@@ -121,7 +121,9 @@ class MainActivity : ComponentActivity() {
 
     private fun handleShare(i: Intent?) {
         if (i?.action != Intent.ACTION_SEND) return
-        val text = i.getStringExtra(Intent.EXTRA_TEXT) ?: return
+        val body = i.getStringExtra(Intent.EXTRA_TEXT) ?: return
+        val subject = i.getStringExtra(Intent.EXTRA_SUBJECT)
+        val text = if (!subject.isNullOrBlank() && !body.contains(subject)) subject + "\n" + body else body
         i.action = null
         RouteSession.fromShared(this, text)
     }
