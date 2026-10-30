@@ -197,11 +197,12 @@ object RouteSession {
         }
     }
 
-    // Yalnızca yerin kendi işareti kabul edilir; harita görünümünün merkezi (@...) yanıltıcı olabilir:
-    // Google çözemediği linklerde haritayı kullanıcının bölgesine (ör. Ankara) açar.
+    // Önce yerin kendi işareti (!3d!4d), sonra linkteki/sayfadaki diğer koordinat biçimleri.
     private val reCoords = listOf(
         Regex("!3d(-?\\d+\\.\\d+)!4d(-?\\d+\\.\\d+)"),
-        Regex("[?&](?:q|ll|query|destination|daddr)=(-?\\d+\\.\\d+)(?:,|%2C)\\s*(-?\\d+\\.\\d+)")
+        Regex("@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)"),
+        Regex("[?&](?:q|ll|query|destination|daddr)=(-?\\d+\\.\\d+)(?:,|%2C)\\s*(-?\\d+\\.\\d+)"),
+        Regex("center=(-?\\d+\\.\\d+)(?:,|%2C)(-?\\d+\\.\\d+)")
     )
 
     private val rePlaceAt = Regex("/maps/place/[^/@?]+/@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)")
@@ -281,7 +282,7 @@ object RouteSession {
                 }
             }
         }
-        (coordsIn(finalUrl) ?: coordsIn(body))?.let { return@withContext place(it) }
+        (coordsIn(finalUrl) ?: coordsIn(body) ?: appState(body))?.let { return@withContext place(it) }
 
         // Firma kimliği (cid/ftid) varsa haritalar sayfasını açıp merkezi oku
         val cid = Regex("[?&]cid=(\\d+)").find(finalUrl)?.groupValues?.get(1)
@@ -293,7 +294,7 @@ object RouteSession {
         }
         if (alt != null) {
             val (u2, b2) = follow(alt)
-            (coordsIn(u2) ?: coordsIn(b2))?.let { return@withContext place(it) }
+            (coordsIn(u2) ?: coordsIn(b2) ?: appState(b2))?.let { return@withContext place(it) }
         }
 
         // Son çare: linkteki arama metni ya da isimle adres araması
