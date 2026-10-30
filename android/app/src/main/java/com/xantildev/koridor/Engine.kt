@@ -16,7 +16,9 @@ data class Fix(val lat: Double, val lon: Double, val t: Long, val speed: Double?
     val ll: LatLng get() = LatLng(lat, lon)
 }
 
-data class Trip(val dist: Double = 0.0, val time: Double = 0.0, val move: Double = 0.0, val stop: Double = 0.0)
+data class Trip(val dist: Double = 0.0, val time: Double = 0.0, val move: Double = 0.0, val stop: Double = 0.0, val stopIn: Double = 0.0) {
+    val stopOut: Double get() = stop - stopIn
+}
 
 data class UiState(
     val mode: String = "idle",
@@ -29,6 +31,7 @@ data class UiState(
     val traveled: Double = 0.0,
     val remaining: Double = 0.0,
     val elapsed: Double = 0.0,
+    val corridorStop: Double = 0.0,
     val slack: Double? = null,
     val maxAvgLeft: String = "—",
     val progress: Float = 0f,
@@ -90,6 +93,7 @@ object Engine {
         var stopAvgBefore: Double? = null
         var stopSlackBefore: Double? = null
         var stopNote: String? = null
+        var stopTotal = 0.0
         val elapsed: Double get() = (now - t0) / 1000.0
         val avg: Double? get() = if (elapsed > 5) traveled / elapsed * 3.6 else null
         val slack: Double? get() = c.limit?.let { elapsed - traveled / (it / 3.6) }
@@ -164,6 +168,7 @@ object Engine {
             val v: Double = f.speed ?: (d / dt)
             vOut = v
             val r0 = run
+            val inCorridor = r0?.confirmed == true
             if (r0 != null) step(r0, d, dt, v)
             if (dt <= 30) {
                 val moving = v * 3.6 >= 4
@@ -171,7 +176,8 @@ object Engine {
                     dist = trip.dist + d,
                     time = trip.time + dt,
                     move = trip.move + (if (moving) dt else 0.0),
-                    stop = trip.stop + (if (moving) 0.0 else dt)
+                    stop = trip.stop + (if (moving) 0.0 else dt),
+                    stopIn = trip.stopIn + (if (!moving && inCorridor) dt else 0.0)
                 )
             }
         }
@@ -201,6 +207,7 @@ object Engine {
         r.now += (dt * 1000).toLong()
         val kmh = v * 3.6
         if (kmh < 4) {
+            if (r.confirmed && dt <= 30) r.stopTotal += dt
             if (r.stopStart == null) {
                 r.stopStart = r.now
                 r.stopAvgBefore = r.avg
@@ -451,6 +458,7 @@ object Engine {
             traveled = r?.traveled ?: 0.0,
             remaining = remaining,
             elapsed = r?.elapsed ?: 0.0,
+            corridorStop = r?.stopTotal ?: 0.0,
             slack = r?.slack,
             maxAvgLeft = maxLeft,
             progress = progress,

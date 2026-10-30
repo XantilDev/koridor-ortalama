@@ -203,7 +203,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         }
         Hud(s) { limitFor = it }
         if (route != null) TripCard(s, route, onGoRoute)
-        if (s.confirmed && s.corridor?.limit != null) WhatIf(s)
+        if (s.confirmed && s.corridor != null) WhatIf(s) { limitFor = it }
         Box(Modifier.fillMaxWidth().height(260.dp).clip(Card).border(1.dp, Line, Card)) { LiveMap(s, ver) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (s.mode == "idle") {
@@ -291,19 +291,26 @@ private fun Hud(s: UiState, onSign: (Corridor) -> Unit) {
             color = Accent, trackColor = Line
         )
         if (inC) {
-            Cells(
-                "Kalan" to Geo.fmtKm(s.remaining),
-                "Geçen süre" to Geo.fmtT(s.elapsed),
-                "Zaman payı" to (s.slack?.let { Geo.fmtSlack(it) } ?: "—"),
-                "Kalan için ort. üst sınır" to s.maxAvgLeft,
-                thirdColor = s.slack?.let { if (it >= 0) Ok else Over }
+            CellGrid(
+                listOf(
+                    Triple("Kalan", Geo.fmtKm(s.remaining), null),
+                    Triple("EDS içi süre", Geo.fmtT(s.elapsed), null),
+                    Triple("Zaman payı", s.slack?.let { Geo.fmtSlack(it) } ?: "—", s.slack?.let { if (it >= 0) Ok else Over }),
+                    Triple("Kalan için ort. üst sınır", s.maxAvgLeft, null),
+                    Triple("EDS içi bekleme", Geo.fmtT(s.corridorStop), if (s.corridorStop > 0) Warn else null),
+                    Triple("Anlık hız", "${s.speedKmh ?: "—"} km/s", null)
+                )
             )
         } else {
-            Cells(
-                "Mesafe" to Geo.fmtKm(s.trip.dist),
-                "Süre" to Geo.fmtT(s.trip.time),
-                "Hareket ortalaması" to (s.moveAvg?.let { "${it.roundToInt()} km/s" } ?: "—"),
-                "Durma süresi" to Geo.fmtT(s.trip.stop)
+            CellGrid(
+                listOf(
+                    Triple("Mesafe", Geo.fmtKm(s.trip.dist), null),
+                    Triple("Süre", Geo.fmtT(s.trip.time), null),
+                    Triple("EDS dışı bekleme", Geo.fmtT(s.trip.stopOut), null),
+                    Triple("EDS içi bekleme", Geo.fmtT(s.trip.stopIn), null),
+                    Triple("Hareket ortalaması", s.moveAvg?.let { "${it.roundToInt()} km/s" } ?: "—", null),
+                    Triple("Anlık hız", "${s.speedKmh ?: "—"} km/s", null)
+                )
             )
         }
         s.approach?.let { NoteBox(it, Accent) }
@@ -346,6 +353,18 @@ private fun Cells(
 }
 
 @Composable
+private fun CellGrid(items: List<Triple<String, String, Color?>>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (k, v, c) -> Cell(k to v, Modifier.weight(1f), c) }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
 private fun Cell(p: Pair<String, String>, modifier: Modifier, valueColor: Color? = null) {
     Column(modifier.clip(RoundedCornerShape(10.dp)).background(Bg).border(1.dp, Line, RoundedCornerShape(10.dp)).padding(10.dp)) {
         Text(p.first.uppercase(), color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -363,9 +382,20 @@ private fun NoteBox(text: String, border: Color) {
 }
 
 @Composable
-private fun WhatIf(s: UiState) {
+private fun WhatIf(s: UiState, onSetLimit: (Corridor) -> Unit) {
     val c = s.corridor ?: return
-    val lim = c.limit ?: return
+    val lim = c.limit
+    if (lim == null) {
+        Column(
+            Modifier.fillMaxWidth().clip(Card).background(Panel).border(1.dp, Warn, Card).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("EDS SONUNA KADAR TAHMİN", color = Muted, fontSize = 11.sp)
+            Text("Bu koridorun limiti bilinmiyor. Levhadaki limiti girersen kalan kısım için ortalama tahmini burada çıkar.", color = Fg, fontSize = 14.sp)
+            Button(onClick = { onSetLimit(c) }) { Text("Limiti gir") }
+        }
+        return
+    }
     val maxV = floor(lim * 1.1).toInt()
     var v by remember(c.key) { mutableFloatStateOf(lim.toFloat()) }
     val vi = v.roundToInt().coerceIn(30, maxV)
@@ -387,7 +417,7 @@ private fun WhatIf(s: UiState) {
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("KALAN YOLU BU HIZLA GİDERSEM", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+            Text("EDS SONUNA KADAR BU HIZLA GİDERSEM", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
             Text(
                 "$vi km/s" + if (vi > lim) " · limit üstü" else "",
                 color = if (vi > lim) Warn else Accent, fontWeight = FontWeight.Bold, fontSize = 20.sp
@@ -407,10 +437,11 @@ private fun WhatIf(s: UiState) {
             Text("$maxV tolerans", color = Muted, fontSize = 12.sp)
         }
         Row(verticalAlignment = Alignment.Bottom) {
-            Text("Bitiş ortalaman ≈ ", color = Fg)
+            Text("EDS bitiş ortalaman ≈ ", color = Fg)
             Text("${fin.roundToInt()} km/s", color = finColor, fontWeight = FontWeight.Bold, fontSize = 20.sp)
         }
-        Text("Kalan ${Geo.fmtKm(s.remaining)} · yaklaşık ${Geo.fmtT(tRem)} dk · $status", color = Muted, fontSize = 13.sp)
+        Text("EDS'de kalan ${Geo.fmtKm(s.remaining)} · yaklaşık ${Geo.fmtT(tRem)} dk · $status", color = Muted, fontSize = 13.sp)
+        if (s.corridorStop > 0) Text("Bu EDS içinde ${Geo.fmtT(s.corridorStop)} bekledin; bekleme ortalamayı düşürür ve hesaba dahil.", color = Muted, fontSize = 12.sp)
         if (vi > lim) {
             Text(
                 "Tolerans ölçüm payıdır; levhadaki limit $lim. Koridor içinde anlık radar da olabilir.",
@@ -585,6 +616,7 @@ private fun RouteTab() {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("Hedef: ${info.target.name}", color = Fg, fontWeight = FontWeight.Bold)
+                Text("Başlangıç: şu anki konumun", color = Muted, fontSize = 12.sp)
                 Text(
                     "${Geo.fmtKm(info.totalM)} · yaklaşık ${durText(info.durationS)} · " +
                         if (info.corridors.isEmpty()) "kayıtlı koridor yok" else "${info.corridors.size} koridor, toplam ${Geo.fmtKm(info.corridors.sumOf { it.lengthM })}",
@@ -617,19 +649,18 @@ private fun durText(sec: Double): String {
 
 @Composable
 private fun TripCard(s: UiState, info: RouteSession.Info, onGoRoute: () -> Unit) {
-    val pos = s.pos
+    val pos = if (s.mode == "gps") s.pos else null
     val rem = if (pos != null) info.remainingFrom(pos) else info.totalM
-    val start = s.moveAvg?.roundToInt()?.coerceIn(30, 140) ?: 90
-    var v by remember(info) { mutableFloatStateOf(start.toFloat()) }
-    val vi = v.roundToInt()
-    val tRem = rem / (vi / 3.6)
+    val v = s.moveAvg?.takeIf { it > 20 } ?: (info.totalM / info.durationS * 3.6)
+    val tRem = rem / (v / 3.6)
     val arrive = java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr", "TR"))
         .format(java.util.Date(System.currentTimeMillis() + (tRem * 1000).toLong()))
-    val tripAvg = if (s.trip.time > 10) (s.trip.dist + rem) / (s.trip.time + tRem) * 3.6 else vi.toDouble()
-    val arrived = rem < 150
+    val next = if (pos == null) null else info.corridors
+        .filter { Geo.dist(pos, it.from) > 50 }
+        .minByOrNull { Geo.dist(pos, it.from) }
     Column(
         Modifier.fillMaxWidth().clip(Card).background(Panel).border(1.dp, Line, Card).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -638,38 +669,18 @@ private fun TripCard(s: UiState, info: RouteSession.Info, onGoRoute: () -> Unit)
             }
             TextButton(onClick = onGoRoute) { Text("Değiştir", color = Accent) }
         }
-        if (arrived) {
+        if (rem < 150 && pos != null) {
             Text("Vardın.", color = Ok, fontWeight = FontWeight.Bold)
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("KALAN YOLU ORTALAMA BU HIZLA GİDERSEM", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                Text("$vi km/s", color = Accent, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-            }
-            Slider(
-                value = v, onValueChange = { v = it }, valueRange = 30f..140f,
-                colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent, inactiveTrackColor = Line)
-            )
-            Row {
-                Text("Varış ≈ ", color = Fg)
-                Text(arrive, color = Accent, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                Text("  (${durText(tRem)} sonra)", color = Muted)
-            }
-            Text(
-                "Kalan ${Geo.fmtKm(rem)} · yolculuk ortalaman ≈ ${tripAvg.roundToInt()} km/s",
-                color = Muted, fontSize = 13.sp
-            )
-            Text(
-                "Bu, duraksız ortalama hızdır; yol boyunca levhalardaki limitler ve koridorlar geçerli.",
-                color = Muted, fontSize = 12.sp
-            )
+            Text("Kalan ${Geo.fmtKm(rem)} · tahmini varış $arrive", color = Fg)
         }
-        val next = info.corridors.filter { pos == null || Geo.dist(pos, it.from) > 50 }
-            .minByOrNull { if (pos == null) 0.0 else Geo.dist(pos, it.from) }
         if (next != null && pos != null) {
             Text(
-                "Sıradaki koridor: ${next.name} · ${Geo.fmtKm(Geo.dist(pos, next.from))} kuş uçuşu · limit ${next.limit ?: "?"}",
-                color = Fg, fontSize = 13.sp
+                "Sıradaki EDS: ${next.name} · ${Geo.fmtKm(Geo.dist(pos, next.from))} · limit ${next.limit ?: "?"}",
+                color = Muted, fontSize = 13.sp
             )
+        } else if (info.corridors.isNotEmpty() && pos == null) {
+            Text("Rotada ${info.corridors.size} EDS koridoru var. GPS ile başlatınca sıradaki gösterilir.", color = Muted, fontSize = 13.sp)
         }
     }
 }

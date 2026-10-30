@@ -109,13 +109,16 @@ class MapHolder(ctx: Context) {
                 pl.setPoints(c.path.map { GeoPoint(it.lat, it.lon) })
                 pl.outlinePaint.color = 0xAAD62B2B.toInt()
                 pl.outlinePaint.strokeWidth = 9f
+                pl.title = c.name
+                pl.snippet = (c.limit?.let { "Limit $it km/s" } ?: "Limit bilinmiyor") + " · " + Geo.fmtKm(c.lengthM) + " · " + c.sourceLabel
                 corr.add(pl)
             }
             val m = Marker(map)
             m.position = GeoPoint(c.from.lat, c.from.lon)
             m.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
             m.icon = dot(Color.WHITE, 0xFFD62B2B.toInt(), 34)
-            m.title = c.name + " · " + (c.limit?.let { "$it km/s" } ?: "limit bilinmiyor")
+            m.title = c.name
+            m.snippet = "Koridor başı · " + (c.limit?.let { "limit $it km/s" } ?: "limit bilinmiyor") + " · " + Geo.fmtKm(c.lengthM)
             corr.add(m)
         }
     }

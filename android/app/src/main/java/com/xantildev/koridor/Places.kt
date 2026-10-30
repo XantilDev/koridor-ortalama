@@ -64,7 +64,8 @@ object Places {
     /** Takip açıksa son konum, değilse telefonun bildiği son konum. */
     @SuppressLint("MissingPermission")
     fun currentLocation(ctx: Context): LatLng? {
-        Engine.state.value.pos?.let { return it }
+        val st = Engine.state.value
+        if (st.mode == "gps") st.pos?.let { return it }
         val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return try {
             listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
