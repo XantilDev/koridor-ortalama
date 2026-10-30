@@ -40,7 +40,18 @@ object CorridorStore {
 
     fun isUser(id: String): Boolean = user.any { it.id == id }
 
-    fun withOverride(c: Corridor): Corridor = ov[c.key]?.let { c.copy(limit = it) } ?: c
+    /**
+     * Etkin limit: aktif araç tipi için girilmiş levha değeri varsa o; yoksa otomobil limiti
+     * (servis/elle girilen) aracın tipine göre uyarlanır.
+     */
+    fun withOverride(c: Corridor): Corridor {
+        val t = VehicleStore.type
+        ov[c.key + "|" + t.code]?.let { return c.copy(limit = it) }
+        val car = ov[c.key] ?: c.limit
+        return c.copy(limit = t.adjust(car))
+    }
+
+    fun vehicleChanged() = changed()
 
     fun all(): List<Corridor> {
         cache?.let { return it }
@@ -83,8 +94,10 @@ object CorridorStore {
         changed()
     }
 
+    /** Kullanıcının levhada gördüğü limit; ticari araçtaysa o tipe özel saklanır. */
     fun setLimit(key: String, v: Int) {
-        ov[key] = v
+        val t = VehicleStore.type
+        ov[if (t.commercial) key + "|" + t.code else key] = v
         val o = JSONObject()
         ov.forEach { (k, value) -> o.put(k, value) }
         prefs.edit().putString("ov", o.toString()).apply()

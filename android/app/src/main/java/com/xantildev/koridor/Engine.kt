@@ -84,6 +84,9 @@ object Engine {
     private var pendingMark: Corridor? = null
     private var markText = "Listede olmayanı kendin ekle"
     private var tick = 0L
+    private var tripStart = 0L
+    private val fullTrack = ArrayList<LatLng>()
+    private val passes = ArrayList<CorridorPass>()
 
     private class Run(var c: Corridor, val t0: Long, val startD: Double) {
         var now = t0
@@ -128,12 +131,42 @@ object Engine {
         approachText = null
         markFrom = null
         pendingMark = null
+        tripStart = System.currentTimeMillis()
+        fullTrack.clear()
+        passes.clear()
         publish()
+    }
+
+    /** Takip bitince yolculuğu kaydeder ve aracın km sayacına ekler. */
+    private fun saveTrip() {
+        if (mode == "idle" || trip.dist < 300) return
+        val v = VehicleStore.active
+        TripStore.save(
+            TripRecord(
+                id = "y" + tripStart,
+                start = tripStart,
+                end = System.currentTimeMillis(),
+                vehicleName = v.name,
+                plate = v.plate,
+                vehicleType = v.type.label,
+                distM = trip.dist,
+                timeS = trip.time,
+                moveS = trip.move,
+                stopInS = trip.stopIn,
+                stopOutS = trip.stopOut,
+                sample = mode == "sim",
+                target = RouteSession.info?.target?.name,
+                passes = ArrayList(passes),
+                track = ArrayList(fullTrack)
+            )
+        )
+        if (mode == "gps") VehicleStore.addKm(v.id, trip.dist / 1000)
     }
 
     fun stop() {
         simJob?.cancel()
         simJob = null
+        saveTrip()
         mode = "idle"
         gpsText = "Konum kapalı"
         run = null
@@ -185,6 +218,8 @@ object Engine {
         prev = f
         track.add(f.ll)
         if (track.size > 3000) track.removeAt(0)
+        val lastFull = fullTrack.lastOrNull()
+        if (lastFull == null || Geo.dist(lastFull, f.ll) > 25) fullTrack.add(f.ll)
 
         val r = run
         if (r == null) {
@@ -286,6 +321,7 @@ object Engine {
     private fun finish(r: Run) {
         val avg = if (r.elapsed > 0) r.traveled / r.elapsed * 3.6 else 0.0
         val lim = r.c.limit
+        passes.add(CorridorPass(r.c.name, lim, avg, r.elapsed, r.stopTotal, r.traveled))
         lastResult = "Son koridor: ${r.c.name} — ortalama ${avg.roundToInt()} km/s" +
             (lim?.let { ", limit $it" } ?: "") + ", süre ${Geo.fmtT(r.elapsed)}."
         say(
@@ -403,6 +439,7 @@ object Engine {
                 val k = x / len
                 onFix(Fix(c.from.lat + (c.to.lat - c.from.lat) * k, c.from.lon + (c.to.lon - c.from.lon) * k, t, ms, 8f))
                 if (x > len + 300) {
+                    saveTrip()
                     mode = "idle"
                     gpsText = "Örnek sürüş bitti"
                     run = null

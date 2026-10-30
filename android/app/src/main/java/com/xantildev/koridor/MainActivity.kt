@@ -148,13 +148,14 @@ private fun Root() {
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         StatusLine(s, ver)
         TabRow(selectedTabIndex = tab, containerColor = Bg, contentColor = Fg) {
-            listOf("Sürüş", "Nereye?", "Koridorlar").forEachIndexed { i, t ->
+            listOf("Sürüş", "Nereye?", "Yolculuk", "Koridor").forEachIndexed { i, t ->
                 Tab(selected = tab == i, onClick = { Nav.tab = i }, text = { Text(t, fontWeight = FontWeight.SemiBold) })
             }
         }
         when (tab) {
             0 -> DriveTab(s, ver) { Nav.tab = 1 }
             1 -> RouteTab()
+            2 -> TripsTab(s)
             else -> ListTab(ver)
         }
     }
@@ -203,7 +204,7 @@ private fun StatusLine(s: UiState, ver: Int) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(9.dp).clip(CircleShape).background(dot))
         Text(
-            "  ${s.gpsText} · $count koridor · Anlık ${s.speedKmh ?: "—"} km/s",
+            "  ${VehicleStore.active.plate.ifBlank { VehicleStore.active.name }} · ${s.gpsText} · $count koridor · ${s.speedKmh ?: "—"} km/s",
             color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
         )
     }
@@ -284,7 +285,8 @@ private fun Hud(s: UiState, onSign: (Corridor) -> Unit) {
         else -> "Koridor dışındasınız"
     }
     val sub = when {
-        inC && c != null -> Geo.fmtKm(c.lengthM) + " koridor · " + c.sourceLabel
+        inC && c != null -> Geo.fmtKm(c.lengthM) + " koridor · " + c.sourceLabel +
+            if (VehicleStore.type.commercial) " · ${VehicleStore.type.label} limiti" else ""
         c != null -> c.name
         s.mode != "idle" -> "Koridor yok · yolculuk ortalaman gösteriliyor"
         else -> "Başlatınca yolculuk ortalaman hesaplanır; koridora girince koridor ölçümüne geçer."
@@ -874,6 +876,301 @@ private fun CorridorRow(c: Corridor, onClick: (() -> Unit)? = null, onDelete: ((
         }
         if (onDelete != null) {
             TextButton(onClick = onDelete) { Text("Sil", color = Over) }
+        }
+    }
+}
+
+
+// ---------------- YOLCULUKLAR ----------------
+
+private fun fmtDate(t: Long, pattern: String) =
+    java.text.SimpleDateFormat(pattern, java.util.Locale("tr", "TR")).format(java.util.Date(t))
+
+private fun fmtOdo(km: Double) = String.format(java.util.Locale("tr", "TR"), "%,.1f km", km)
+
+@Composable
+private fun TripsTab(s: UiState) {
+    var open by remember { mutableStateOf<TripRecord?>(null) }
+    var vehDlg by remember { mutableStateOf(false) }
+    val t = open
+    if (t != null) {
+        TripDetail(t, onBack = { open = null }, onDelete = { TripStore.delete(t.id); open = null })
+        return
+    }
+    val trips = TripStore.trips
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item { VehicleCard(s) { vehDlg = true } }
+        item {
+            val total = trips.filter { !it.sample }
+            Text(
+                if (trips.isEmpty()) "Henüz yolculuk yok" else "Yolculuklarım · ${total.size} kayıt · ${Geo.fmtKm(total.sumOf { it.distM })}",
+                fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Fg, modifier = Modifier.padding(top = 8.dp)
+            )
+            if (trips.isEmpty()) {
+                Text("“GPS ile başlat” ile başlayıp “Durdur” ile bitirdiğin her sürüş burada mesafe, süre, ortalamalar ve rotasıyla saklanır.", color = Muted, fontSize = 13.sp)
+            }
+        }
+        items(trips) { tr -> TripRow(tr) { open = tr } }
+    }
+    if (vehDlg) VehicleDialog { vehDlg = false }
+}
+
+@Composable
+private fun VehicleCard(s: UiState, onEdit: () -> Unit) {
+    val v = VehicleStore.active
+    val live = if (s.mode == "gps") s.trip.dist / 1000 else 0.0
+    Column(
+        Modifier.fillMaxWidth().clip(Card).background(Panel).border(1.dp, Line, Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("AKTİF ARAÇ", color = Muted, fontSize = 11.sp, letterSpacing = 1.sp)
+                Text(v.name, color = Fg, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(v.type.label, color = Muted, fontSize = 13.sp)
+            }
+            if (v.plate.isNotBlank()) {
+                Text(
+                    v.plate, color = Color(0xFF111111), fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.White)
+                        .border(2.dp, Color(0xFF1F4E9C), RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+        Text("Km sayacı: ${fmtOdo(v.odoKm + live)}", color = Fg, fontSize = 15.sp)
+        if (v.type.commercial) {
+            Text(
+                "Limitler ticari araca göre: şehir içi ${v.type.urban}, çift yönlü ${v.type.twoWay}, bölünmüş ${v.type.divided}, otoyol ${v.type.motorway}. Levha farklıysa levha geçerli.",
+                color = Muted, fontSize = 12.sp
+            )
+        }
+        OutlinedButton(onClick = onEdit) { Text("Araçları düzenle / değiştir", color = Fg) }
+    }
+}
+
+@Composable
+private fun VehicleDialog(onClose: () -> Unit) {
+    var editing by remember { mutableStateOf(VehicleStore.active) }
+    var name by remember(editing.id) { mutableStateOf(editing.name) }
+    var plate by remember(editing.id) { mutableStateOf(editing.plate) }
+    var type by remember(editing.id) { mutableStateOf(editing.type) }
+    var km by remember(editing.id) { mutableStateOf(if (editing.odoKm > 0) String.format(java.util.Locale.US, "%.0f", editing.odoKm) else "") }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Araçlarım") },
+        text = {
+            Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                VehicleStore.vehicles.forEach { v ->
+                    val sel = v.id == editing.id
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .background(if (sel) Line else Bg).clickable { editing = v }.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(v.name + if (v.id == VehicleStore.activeId) " · aktif" else "", color = Fg, fontWeight = FontWeight.SemiBold)
+                            Text("${v.plate.ifBlank { "plakasız" }} · ${v.type.label}", color = Muted, fontSize = 12.sp)
+                        }
+                    }
+                }
+                TextButton(onClick = {
+                    val nv = Vehicle("v" + System.currentTimeMillis(), "Yeni araç", "", VehicleType.OTO, 0.0)
+                    VehicleStore.upsert(nv)
+                    editing = nv
+                }) { Text("+ Yeni araç ekle", color = Accent) }
+                Text("SEÇİLİ ARACI DÜZENLE", color = Muted, fontSize = 11.sp, letterSpacing = 1.sp)
+                OutlinedTextField(value = name, onValueChange = { name = it.take(30) }, label = { Text("Araç adı") }, singleLine = true)
+                OutlinedTextField(
+                    value = plate,
+                    onValueChange = { plate = it.uppercase(java.util.Locale("tr", "TR")).filter { ch -> ch.isLetterOrDigit() || ch == ' ' }.take(12) },
+                    label = { Text("Plaka (ör. 71 ABC 123)") }, singleLine = true
+                )
+                OutlinedTextField(
+                    value = km, onValueChange = { km = it.filter { ch -> ch.isDigit() }.take(7) },
+                    label = { Text("Şu anki km (gösterge)") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                Text("Araç tipi", color = Muted, fontSize = 12.sp)
+                VehicleType.values().forEach { vt ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .background(if (vt == type) Line else Bg).clickable { type = vt }.padding(10.dp)
+                    ) {
+                        Column {
+                            Text(vt.label, color = Fg, fontWeight = if (vt == type) FontWeight.Bold else FontWeight.Normal)
+                            Text("${vt.urban} / ${vt.twoWay} / ${vt.divided} / ${vt.motorway} km/s", color = Muted, fontSize = 11.sp)
+                        }
+                    }
+                }
+                Text("Sıra: şehir içi / çift yönlü / bölünmüş yol / otoyol (genel sınırlar).", color = Muted, fontSize = 11.sp)
+                if (VehicleStore.vehicles.size > 1) {
+                    TextButton(onClick = {
+                        VehicleStore.remove(editing.id)
+                        editing = VehicleStore.active
+                    }) { Text("Bu aracı sil", color = Over) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                VehicleStore.upsert(
+                    editing.copy(
+                        name = name.trim().ifBlank { "Aracım" },
+                        plate = plate.trim(),
+                        type = type,
+                        odoKm = km.toDoubleOrNull() ?: editing.odoKm
+                    )
+                )
+                VehicleStore.select(editing.id)
+                onClose()
+            }) { Text("Kaydet ve seç") }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("Kapat") } }
+    )
+}
+
+@Composable
+private fun TripRow(t: TripRecord, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel)
+            .border(1.dp, Line, RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Row {
+            Text(fmtDate(t.start, "d MMM yyyy, EEE"), color = Fg, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text("${fmtDate(t.start, "HH:mm")}–${fmtDate(t.end, "HH:mm")}", color = Muted, fontSize = 13.sp)
+        }
+        Text(
+            "${Geo.fmtKm(t.distM)} · ${durText(t.timeS)} · ort. ${t.avg?.roundToInt() ?: "—"} km/s" +
+                if (t.passes.isNotEmpty()) " · ${t.passes.size} EDS" else "",
+            color = Fg, fontSize = 14.sp
+        )
+        Text(
+            listOfNotNull(
+                t.plate.ifBlank { t.vehicleName },
+                t.target?.let { "→ $it" },
+                if (t.sample) "örnek sürüş" else null
+            ).joinToString(" · "),
+            color = Muted, fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+private fun TripDetail(t: TripRecord, onBack: () -> Unit, onDelete: () -> Unit) {
+    var confirm by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        TextButton(onClick = onBack) { Text("‹ Yolculuklar", color = Accent) }
+        Text(fmtDate(t.start, "d MMMM yyyy, EEEE"), fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Fg)
+        Text(
+            "${fmtDate(t.start, "HH:mm")}–${fmtDate(t.end, "HH:mm")} · ${t.plate.ifBlank { t.vehicleName }} · ${t.vehicleType}" +
+                (t.target?.let { " · hedef: $it" } ?: ""),
+            color = Muted, fontSize = 13.sp
+        )
+        Box(Modifier.fillMaxWidth().height(300.dp).clip(Card).border(1.dp, Line, Card)) { TripMap(t) }
+        CellGrid(
+            listOf(
+                Triple("Mesafe", Geo.fmtKm(t.distM), null),
+                Triple("Süre", durText(t.timeS), null),
+                Triple("Ortalama", "${t.avg?.roundToInt() ?: "—"} km/s", null),
+                Triple("Hareket ortalaması", "${t.moveAvg?.roundToInt() ?: "—"} km/s", null),
+                Triple("EDS dışı bekleme", Geo.fmtT(t.stopOutS), null),
+                Triple("EDS içi bekleme", Geo.fmtT(t.stopInS), null)
+            )
+        )
+        Text(if (t.passes.isEmpty()) "Bu yolculukta EDS koridoru geçilmedi." else "Geçilen EDS koridorları", color = Fg, fontWeight = FontWeight.SemiBold)
+        t.passes.forEach { p ->
+            val col = when {
+                p.limit == null -> Fg
+                p.avg > p.limit * 1.1 -> Over
+                p.avg > p.limit -> Warn
+                else -> Ok
+            }
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel)
+                    .border(1.dp, Line, RoundedCornerShape(12.dp)).padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(p.name, color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${Geo.fmtKm(p.lengthM)} · ${Geo.fmtT(p.durationS)}" +
+                            (if (p.stopS > 0) " · bekleme ${Geo.fmtT(p.stopS)}" else "") +
+                            " · limit ${p.limit ?: "?"}",
+                        color = Muted, fontSize = 12.sp
+                    )
+                }
+                Text("${p.avg.roundToInt()}", color = col, fontWeight = FontWeight.Bold, fontSize = 26.sp)
+            }
+        }
+        if (confirm) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onDelete, colors = ButtonDefaults.buttonColors(containerColor = Over)) { Text("Evet, sil") }
+                OutlinedButton(onClick = { confirm = false }) { Text("Vazgeç", color = Fg) }
+            }
+        } else {
+            TextButton(onClick = { confirm = true }) { Text("Bu yolculuğu sil", color = Over) }
+        }
+    }
+}
+
+@Composable
+private fun TripMap(t: TripRecord) {
+    val ctx = LocalContext.current
+    val map = remember(t.id) {
+        org.osmdroid.views.MapView(ctx).apply {
+            setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
+            controller.setZoom(6.0)
+            controller.setCenter(org.osmdroid.util.GeoPoint(39.0, 35.0))
+            val pts = t.track.map { org.osmdroid.util.GeoPoint(it.lat, it.lon) }
+            if (pts.size >= 2) {
+                val line = org.osmdroid.views.overlay.Polyline(this)
+                line.setPoints(pts)
+                line.outlinePaint.color = 0xFFF2B632.toInt()
+                line.outlinePaint.strokeWidth = 10f
+                overlays.add(line)
+                fun dotMarker(p: org.osmdroid.util.GeoPoint, color: Int, title: String) {
+                    val m = org.osmdroid.views.overlay.Marker(this)
+                    m.position = p
+                    m.setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_CENTER)
+                    m.icon = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(color)
+                        setStroke(6, android.graphics.Color.WHITE)
+                        setSize(38, 38)
+                    }
+                    m.title = title
+                    overlays.add(m)
+                }
+                dotMarker(pts.first(), 0xFF2FBF71.toInt(), "Başlangıç " + fmtDate(t.start, "HH:mm"))
+                dotMarker(pts.last(), 0xFF4DA3FF.toInt(), "Bitiş " + fmtDate(t.end, "HH:mm"))
+                val box = org.osmdroid.util.BoundingBox.fromGeoPoints(pts)
+                addOnFirstLayoutListener { _, _, _, _, _ ->
+                    try {
+                        zoomToBoundingBox(box, false, 60)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }
+    }
+    AndroidView(factory = { map }, modifier = Modifier.fillMaxSize())
+    DisposableEffect(t.id) {
+        map.onResume()
+        onDispose { map.onPause() }
+    }
+    if (t.track.size < 2) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Bu yolculuk için rota kaydı yok", color = Muted)
         }
     }
 }

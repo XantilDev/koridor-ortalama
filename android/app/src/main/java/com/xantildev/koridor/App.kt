@@ -21,6 +21,8 @@ class App : Application() {
             }
             prev?.uncaughtException(t, e)
         }
+        VehicleStore.init(this)
+        TripStore.init(this)
         CorridorStore.init(this)
         Speaker.init(this)
         Configuration.getInstance().load(this, getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
