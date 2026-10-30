@@ -1071,12 +1071,15 @@ private fun TripRow(t: TripRecord, onClick: () -> Unit) {
             ).joinToString(" · "),
             color = Muted, fontSize = 12.sp
         )
+        if (t.note.isNotBlank()) Text("“${t.note}”", color = Accent, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-private fun TripDetail(t: TripRecord, onBack: () -> Unit, onDelete: () -> Unit) {
+private fun TripDetail(t0: TripRecord, onBack: () -> Unit, onDelete: () -> Unit) {
+    val t = TripStore.trips.firstOrNull { it.id == t0.id } ?: t0
     var confirm by remember { mutableStateOf(false) }
+    var note by remember(t.id) { mutableStateOf(t.note) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1089,6 +1092,14 @@ private fun TripDetail(t: TripRecord, onBack: () -> Unit, onDelete: () -> Unit) 
             color = Muted, fontSize = 13.sp
         )
         Box(Modifier.fillMaxWidth().height(300.dp).clip(Card).border(1.dp, Line, Card)) { TripMap(t) }
+        OutlinedTextField(
+            value = note, onValueChange = { note = it.take(300) },
+            label = { Text("Açıklama (ör. müşteri ziyareti, yakıt alındı)") },
+            modifier = Modifier.fillMaxWidth(), minLines = 2
+        )
+        if (note.trim() != t.note) {
+            Button(onClick = { TripStore.setNote(t.id, note) }) { Text("Açıklamayı kaydet") }
+        }
         CellGrid(
             listOf(
                 Triple("Mesafe", Geo.fmtKm(t.distM), null),

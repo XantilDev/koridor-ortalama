@@ -33,7 +33,8 @@ data class TripRecord(
     val sample: Boolean,
     val target: String?,
     val passes: List<CorridorPass>,
-    val track: List<LatLng>
+    val track: List<LatLng>,
+    val note: String = ""
 ) {
     val avg: Double? get() = if (timeS > 10) distM / timeS * 3.6 else null
     val moveAvg: Double? get() = if (moveS > 10) distM / moveS * 3.6 else null
@@ -57,6 +58,11 @@ object TripStore {
         trips = (listOf(t) + trips.filter { it.id != t.id }).sortedByDescending { it.start }
     }
 
+    fun setNote(id: String, note: String) {
+        val t = trips.firstOrNull { it.id == id } ?: return
+        save(t.copy(note = note.trim()))
+    }
+
     fun delete(id: String) {
         runCatching { File(dir, "$id.json").delete() }
         trips = trips.filter { it.id != id }
@@ -69,6 +75,7 @@ object TripStore {
             .put("d", t.distM).put("t", t.timeS).put("m", t.moveS)
             .put("si", t.stopInS).put("so", t.stopOutS).put("x", t.sample)
             .put("hd", t.target ?: "")
+            .put("not", t.note)
         val ps = JSONArray()
         t.passes.forEach { p ->
             ps.put(
@@ -102,7 +109,8 @@ object TripStore {
             (0 until tr.length()).map { i ->
                 val q = tr.getJSONArray(i)
                 LatLng(q.getDouble(0), q.getDouble(1))
-            }
+            },
+            o.optString("not")
         )
     }
 }
