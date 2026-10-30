@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.xantildev.koridor"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.xantildev.koridor"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "0.1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
     }
@@ -29,6 +29,11 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("test")
+        }
+        release {
+            // Play'e yükleme anahtarı (Play App Signing asıl imzayı kendisi tutar)
+            signingConfig = signingConfigs.getByName("test")
+            isMinifyEnabled = false
         }
     }
 
