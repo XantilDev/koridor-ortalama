@@ -63,5 +63,26 @@ object Geo {
         return "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
     }
 
+    /** Noktanın bir çizgiye (rota) en kısa uzaklığı, metre. */
+    fun distToLine(p: LatLng, line: List<LatLng>): Double {
+        if (line.size < 2) return if (line.isEmpty()) Double.MAX_VALUE else dist(p, line[0])
+        val kx = cos(Math.toRadians(p.lat)) * 111320.0
+        val ky = 110540.0
+        var best = Double.MAX_VALUE
+        for (i in 0 until line.size - 1) {
+            val ax = (line[i].lon - p.lon) * kx
+            val ay = (line[i].lat - p.lat) * ky
+            val bx = (line[i + 1].lon - p.lon) * kx
+            val by = (line[i + 1].lat - p.lat) * ky
+            val dx = bx - ax
+            val dy = by - ay
+            val l2 = dx * dx + dy * dy
+            val t = (if (l2 > 0) -(ax * dx + ay * dy) / l2 else 0.0).coerceIn(0.0, 1.0)
+            val d = sqrt((ax + t * dx) * (ax + t * dx) + (ay + t * dy) * (ay + t * dy))
+            if (d < best) best = d
+        }
+        return best
+    }
+
     fun fmtSlack(sec: Double): String = (if (sec >= 0) "+" else "−") + fmtT(kotlin.math.abs(sec))
 }

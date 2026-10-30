@@ -826,6 +826,13 @@ private fun ListTab(ver: Int) {
                     "trafik.gov.tr ${CorridorStore.routeCount} · EGM ${CorridorStore.egmCount} · senin ${CorridorStore.userCount}. Limiti değiştirmek için koridora dokun.",
                     color = Muted, fontSize = 13.sp
                 )
+                Text(
+                    "Rota seçtiğinde gelen koridorlar sonraki sürüşlerde de tanınmak için saklanır. Eski rotalardan kalanları silmek için:",
+                    color = Muted, fontSize = 12.sp
+                )
+                OutlinedButton(onClick = { CorridorStore.clearRoute() }) {
+                    Text("İndirilen ${CorridorStore.routeCount} koridoru temizle", color = Fg)
+                }
                 Spacer(Modifier.height(4.dp))
             }
         }

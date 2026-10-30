@@ -91,6 +91,12 @@ object CorridorStore {
         changed()
     }
 
+    fun clearRoute() {
+        route.clear()
+        prefs.edit().putString("route", "[]").apply()
+        changed()
+    }
+
     fun addRoute(list: List<Corridor>) {
         list.forEach { route[it.id] = it }
         prefs.edit().putString("route", toJson(route.values)).apply()

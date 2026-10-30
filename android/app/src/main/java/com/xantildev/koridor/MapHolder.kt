@@ -63,7 +63,7 @@ class MapHolder(ctx: Context) {
 
     fun update(s: UiState, ver: Int, follow: Boolean) {
         val sim = s.mode == "sim"
-        val key = ver * 2 + if (sim) 1 else 0
+        val key = (ver * 2 + if (sim) 1 else 0) * 31 + System.identityHashCode(RouteSession.info)
         if (key != drawnKey) {
             drawnKey = key
             drawCorridors(sim)
@@ -134,7 +134,14 @@ class MapHolder(ctx: Context) {
 
     private fun drawCorridors(sim: Boolean) {
         corr.items.clear()
-        val list = CorridorStore.all() + if (sim) listOf(CorridorStore.withOverride(Engine.DEMO)) else emptyList()
+        // Rota seçiliyse yalnızca rotadaki koridorlar; değilse hepsi (tanıma için saklananlar dahil)
+        val ri = RouteSession.info
+        val base = if (ri != null) {
+            CorridorStore.all().filter { c ->
+                ri.corridors.any { it.key == c.key } || (Geo.distToLine(c.from, ri.line) < 400 && Geo.distToLine(c.to, ri.line) < 400)
+            }
+        } else CorridorStore.all()
+        val list = base + if (sim) listOf(CorridorStore.withOverride(Engine.DEMO)) else emptyList()
         for (c in list) {
             if (c.path.size >= 2) {
                 val pl = Polyline(map)

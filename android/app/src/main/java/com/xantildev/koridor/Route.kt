@@ -133,7 +133,11 @@ object RouteSession {
                 val b = DistrictFinder.nearest(p.ll, p.province)
                 startLabel = a.name
                 targetLabel = b.name
-                corridors = TrafikApi.route(a, b)
+                val all = TrafikApi.route(a, b)
+                // Yalnızca gerçekten rotanın üstündekiler (giriş ve çıkışı çizgiye 400 m'den yakın)
+                corridors = if (road != null) all.filter {
+                    Geo.distToLine(it.from, road.first) < 400 && Geo.distToLine(it.to, road.first) < 400
+                } else all
                 CorridorStore.addRoute(corridors)
             } catch (e: Exception) {
                 err = "Koridorlar alınamadı: ${e.message ?: "bağlantı hatası"}. Varış tahmini yine çalışır."
@@ -156,7 +160,7 @@ object RouteSession {
 
     /** OSRM (OpenStreetMap) ile araç rotası: çizgi, metre, saniye. */
     private suspend fun osrm(a: LatLng, b: LatLng): Triple<List<LatLng>, Double, Double> = withContext(Dispatchers.IO) {
-        val url = "https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=simplified&geometries=geojson"
+        val url = "https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=full&geometries=geojson"
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 20000
