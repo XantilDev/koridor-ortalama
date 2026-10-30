@@ -47,8 +47,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk KoridorOrtalama.apk
+          AAPT2=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)aapt2
+          $AAPT2 dump xmltree --file AndroidManifest.xml KoridorOrtalama.apk > manifest.txt || true
           gh release delete son-surum --yes --cleanup-tag 2>/dev/null || true
-          gh release create son-surum KoridorOrtalama.apk \
+          gh release create son-surum KoridorOrtalama.apk manifest.txt \
             --title "Koridor Ortalama · test sürümü #${{ github.run_number }}" \
             --notes "Kendi kullanımın için test sürümü. Telefona indirip kur." \
             --prerelease
