@@ -1,0 +1,54 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: APK derle
+        working-directory: android
+        run: gradle :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Derleme hatasını kaydet
+        if: failure()
+        run: |
+          mkdir -p out && cp android/build.log out/ || true
+          cd out
+          git init -q -b derleme-hatasi
+          git config user.name github-actions; git config user.email actions@github.com
+          git add -A; git commit -q -m "derleme hatası" || true
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" derleme-hatasi
+
+      - name: APK'yı yayınla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk KoridorOrtalama.apk
+          gh release delete son-surum --yes --cleanup-tag 2>/dev/null || true
+          gh release create son-surum KoridorOrtalama.apk \
+            --title "Koridor Ortalama · test sürümü #${{ github.run_number }}" \
+            --notes "Kendi kullanımın için test sürümü. Telefona indirip kur." \
+            --prerelease
