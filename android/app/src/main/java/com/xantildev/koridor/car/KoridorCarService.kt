@@ -169,7 +169,7 @@ class Gauge : SurfaceCallback {
         }
         line(c, l1, left, top + ah * 0.70f, unit * 0.075f, fg, bold = true, maxW = right - left)
         line(c, l2, left, top + ah * 0.80f, unit * 0.06f, muted, maxW = right - left)
-        val note = s.approach ?: s.note
+        val note = s.arrived?.let { "Hedefe vardın: $it · bitirmek için “Bitir”" } ?: s.approach ?: s.note
         if (note != null) line(c, note, left, top + ah * 0.92f, unit * 0.06f, warn, maxW = right - left)
     }
 }
@@ -184,7 +184,7 @@ class MainCarScreen(ctx: CarContext) : Screen(ctx) {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 Engine.state.collect { s ->
                     gauge.draw(s)
-                    val key = "${s.mode}|${s.markActive}"
+                    val key = "${s.mode}|${s.markActive}|${s.arrived != null}"
                     if (key != lastKey) {
                         lastKey = key
                         invalidate()
@@ -228,7 +228,7 @@ class MainCarScreen(ctx: CarContext) : Screen(ctx) {
             } else {
                 strip.addAction(Action.Builder().setTitle("Koridor başı").setOnClickListener { Engine.markStart() }.build())
             }
-            strip.addAction(Action.Builder().setTitle("Durdur").setOnClickListener { TrackingService.stop(carContext) }.build())
+            strip.addAction(Action.Builder().setTitle(if (s.arrived != null) "Vardım · Bitir" else "Bitir").setOnClickListener { TrackingService.stop(carContext) }.build())
         }
         return NavigationTemplate.Builder()
             .setActionStrip(strip.build())

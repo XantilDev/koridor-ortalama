@@ -97,6 +97,7 @@ private val Card = RoundedCornerShape(14.dp)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val firstOpen = savedInstanceState == null
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             MaterialTheme(
@@ -108,7 +109,7 @@ class MainActivity : ComponentActivity() {
                     outline = Line
                 )
             ) {
-                Surface(Modifier.fillMaxSize(), color = Bg) { Root() }
+                Surface(Modifier.fillMaxSize(), color = Bg) { Root(firstOpen) }
             }
         }
         handleShare(intent)
@@ -129,10 +130,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun hasLocation(ctx: Context) =
+internal fun hasLocation(ctx: Context) =
     ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-private fun perms(): Array<String> =
+internal fun perms(): Array<String> =
     if (Build.VERSION.SDK_INT >= 33) {
         arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.POST_NOTIFICATIONS)
     } else {
@@ -140,11 +141,12 @@ private fun perms(): Array<String> =
     }
 
 @Composable
-private fun Root() {
+private fun Root(firstOpen: Boolean) {
     val tab = Nav.tab
     val s by Engine.state.collectAsStateWithLifecycle()
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
     CrashReport()
+    StartupPrompts(firstOpen, s)
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         StatusLine(s, ver)
         TabRow(selectedTabIndex = tab, containerColor = Bg, contentColor = Fg) {
@@ -241,9 +243,14 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (s.mode == "idle") {
                 Button(
-                    onClick = { if (hasLocation(ctx)) TrackingService.start(ctx) else launcher.launch(perms()) },
+                    onClick = {
+                        if (hasLocation(ctx)) {
+                            TrackingService.start(ctx)
+                            if (!locationOn(ctx)) ctx.startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                        } else launcher.launch(perms())
+                    },
                     modifier = Modifier.weight(1f).height(52.dp)
-                ) { Text("GPS ile başlat", fontWeight = FontWeight.Bold) }
+                ) { Text("Sürüşü başlat", fontWeight = FontWeight.Bold) }
                 OutlinedButton(onClick = { Engine.startSim() }, modifier = Modifier.weight(1f).height(52.dp)) {
                     Text("Örnek sürüş", color = Fg)
                 }
@@ -252,7 +259,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
                     onClick = { if (s.mode == "gps") TrackingService.stop(ctx) else Engine.stop() },
                     modifier = Modifier.weight(1f).height(52.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Line, contentColor = Fg)
-                ) { Text("Durdur", fontWeight = FontWeight.Bold) }
+                ) { Text("Sürüşü bitir", fontWeight = FontWeight.Bold) }
             }
         }
         MarkBox(s)

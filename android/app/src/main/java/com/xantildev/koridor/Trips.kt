@@ -46,7 +46,19 @@ object TripStore {
     var trips by mutableStateOf<List<TripRecord>>(emptyList())
         private set
 
+    private lateinit var activeFile: File
+
+    /** Süren (bitmemiş) yolculuğun kimliği; uygulama kapansa da korunur. */
+    fun activeId(): String? = runCatching { activeFile.readText().trim().ifBlank { null } }.getOrNull()
+
+    fun setActive(id: String?) {
+        runCatching { if (id == null) activeFile.delete() else activeFile.writeText(id) }
+    }
+
+    fun get(id: String?): TripRecord? = if (id == null) null else trips.firstOrNull { it.id == id }
+
     fun init(ctx: Context) {
+        activeFile = File(ctx.filesDir, "aktif_yolculuk.txt")
         dir = File(ctx.filesDir, "yolculuklar").apply { mkdirs() }
         trips = (dir.listFiles() ?: emptyArray())
             .mapNotNull { f -> runCatching { fromJson(JSONObject(f.readText())) }.getOrNull() }

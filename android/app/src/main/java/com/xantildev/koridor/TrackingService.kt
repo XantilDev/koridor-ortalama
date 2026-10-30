@@ -30,11 +30,15 @@ class TrackingService : Service() {
         private const val CH = "takip"
         private const val ID = 7
         private const val ACTION_STOP = "dur"
+        private const val EXTRA_RESUME = "devam"
         var running = false
             private set
 
-        fun start(ctx: Context) {
-            ContextCompat.startForegroundService(ctx, Intent(ctx, TrackingService::class.java))
+        /** resumeId verilirse o yarım kalan yolculuğa devam edilir. */
+        fun start(ctx: Context, resumeId: String? = null) {
+            val i = Intent(ctx, TrackingService::class.java)
+            if (resumeId != null) i.putExtra(EXTRA_RESUME, resumeId)
+            ContextCompat.startForegroundService(ctx, i)
         }
 
         fun stop(ctx: Context) {
@@ -78,8 +82,11 @@ class TrackingService : Service() {
         startFg()
         if (!running) {
             running = true
-            Engine.startTracking("gps")
-            Engine.say("Takip başladı.")
+            // intent null ise sistem servisi yeniden başlattı: yarım kalan yolculuktan devam et
+            val resumeId = intent?.getStringExtra(EXTRA_RESUME) ?: if (intent == null) TripStore.activeId() else null
+            val resume = TripStore.get(resumeId)
+            Engine.startTracking("gps", resume)
+            Engine.say(if (resume != null) "Yolculuğa devam ediliyor." else "Takip başladı.")
             val m = getSystemService(Context.LOCATION_SERVICE) as LocationManager
             lm = m
             try {
@@ -96,7 +103,9 @@ class TrackingService : Service() {
                     val now = System.currentTimeMillis()
                     if (now - lastNotif > 3000) {
                         lastNotif = now
-                        val text = if (s.confirmed && s.corridor != null) {
+                        val text = if (s.arrived != null) {
+                            "Hedefe vardın: ${s.arrived} · bitirmek için “Sürüşü bitir”"
+                        } else if (s.confirmed && s.corridor != null) {
                             "Koridor: ${s.avg?.roundToInt() ?: "—"} km/s · limit ${s.corridor.limit ?: "?"} · kalan ${Geo.fmtKm(s.remaining)}"
                         } else {
                             "Yolculuk ortalaması ${s.tripAvg?.roundToInt() ?: "—"} km/s · ${Geo.fmtKm(s.trip.dist)}"
@@ -114,11 +123,20 @@ class TrackingService : Service() {
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+        val stop = PendingIntent.getService(
+            this, 1, Intent(this, TrackingService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val stopAction = Notification.Action.Builder(
+            android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+            "Sürüşü bitir", stop
+        ).build()
         return Notification.Builder(this, CH)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentTitle("Koridor Ortalama takipte")
             .setContentText(text)
             .setContentIntent(open)
+            .addAction(stopAction)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()

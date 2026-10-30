@@ -44,6 +44,7 @@ data class UiState(
     val markActive: Boolean = false,
     val pendingMark: Corridor? = null,
     val markText: String = "Listede olmayanı kendin ekle",
+    val arrived: String? = null,
     val tick: Long = 0
 )
 
@@ -89,6 +90,10 @@ object Engine {
     private var gapJob: Job? = null
     private val fullTrack = ArrayList<LatLng>()
     private val passes = ArrayList<CorridorPass>()
+    private var lastCheckpoint = 0L
+    private var arrivedAt: String? = null      // hedefe varıldı uyarısı (gösterilecek)
+    private var arrivedFor: String? = null     // aynı hedef için tekrar sorma
+    private var savedTarget: String? = null    // devam edilen yolculuğun hedef adı
 
     private class Run(var c: Corridor, val t0: Long, val startD: Double) {
         var now = t0
@@ -119,7 +124,7 @@ object Engine {
         Speaker.say(text)
     }
 
-    fun startTracking(m: String) {
+    fun startTracking(m: String, resume: TripRecord? = null) {
         simJob?.cancel()
         simJob = null
         mode = m
@@ -139,6 +144,19 @@ object Engine {
         lastFixWall = 0L
         fullTrack.clear()
         passes.clear()
+        arrivedAt = null
+        arrivedFor = null
+        savedTarget = resume?.target
+        lastCheckpoint = System.currentTimeMillis()
+        if (resume != null) {
+            // Yarım kalan yolculuğa devam: önceki toplamlar ve rota korunur
+            tripStart = resume.start
+            trip = Trip(resume.distM, resume.timeS, resume.moveS, resume.stopInS + resume.stopOutS, resume.stopInS)
+            fullTrack.addAll(resume.track)
+            track.addAll(resume.track.takeLast(3000))
+            passes.addAll(resume.passes)
+        }
+        if (m == "gps") TripStore.setActive("y$tripStart")
         gapJob?.cancel()
         if (m == "gps") {
             gapJob = scope.launch {
@@ -155,12 +173,10 @@ object Engine {
         publish()
     }
 
-    /** Takip bitince yolculuğu kaydeder ve aracın km sayacına ekler. */
-    private fun saveTrip() {
-        if (mode == "idle" || trip.dist < 300) return
+    /** Süren yolculuğun şu anki hâli (ara kayıt ve bitiş için). */
+    private fun record(): TripRecord {
         val v = VehicleStore.active
-        TripStore.save(
-            TripRecord(
+        return TripRecord(
                 id = "y" + tripStart,
                 start = tripStart,
                 end = System.currentTimeMillis(),
@@ -173,12 +189,53 @@ object Engine {
                 stopInS = trip.stopIn,
                 stopOutS = trip.stopOut,
                 sample = mode == "sim",
-                target = RouteSession.info?.target?.name,
+                target = RouteSession.info?.target?.name ?: savedTarget,
                 passes = ArrayList(passes),
                 track = ArrayList(fullTrack)
             )
-        )
-        if (mode == "gps") VehicleStore.addKm(v.id, trip.dist / 1000)
+    }
+
+    /** Takip bitince yolculuğu kaydeder ve aracın km sayacına ekler. */
+    private fun saveTrip() {
+        if (mode == "gps") TripStore.setActive(null)
+        if (mode == "idle" || trip.dist < 300) {
+            if (mode == "gps") TripStore.delete("y$tripStart") // çok kısa ara kayıt kalmasın
+            return
+        }
+        TripStore.save(record())
+        if (mode == "gps") VehicleStore.addKm(VehicleStore.active.id, trip.dist / 1000)
+    }
+
+    /** Uygulama ya da telefon kapansa da yolculuk kaybolmasın diye 30 sn'de bir ara kayıt. */
+    private fun checkpoint() {
+        if (mode != "gps" || trip.dist < 300) return
+        val now = System.currentTimeMillis()
+        if (now - lastCheckpoint < 30000) return
+        lastCheckpoint = now
+        TripStore.save(record())
+    }
+
+    /** Hedefe varınca bir kez sorar. */
+    private fun checkArrival(p: LatLng) {
+        val tgt = RouteSession.info?.target ?: return
+        if (arrivedFor == tgt.name) return
+        val d = Geo.dist(p, tgt.ll)
+        if (d < 150 || (d < 300 && (speedKmh ?: 99) < 15)) {
+            arrivedFor = tgt.name
+            arrivedAt = tgt.name
+            say("Hedefe vardın. İstersen sürüşü bitirebilirsin.")
+        }
+    }
+
+    fun dismissArrival() {
+        arrivedAt = null
+        publish()
+    }
+
+    /** Süren yolculuğun kısa özeti (açılış sorusu için). */
+    fun summary(): String {
+        val mins = (trip.time / 60).toInt()
+        return Geo.fmtKm(trip.dist) + " · " + (if (mins >= 60) "${mins / 60} sa ${mins % 60} dk" else "$mins dk")
     }
 
     fun stop() {
@@ -248,6 +305,8 @@ object Engine {
         if (track.size > 3000) track.removeAt(0)
         val lastFull = fullTrack.lastOrNull()
         if (lastFull == null || Geo.dist(lastFull, f.ll) > 25) fullTrack.add(f.ll)
+        checkpoint()
+        checkArrival(f.ll)
 
         val r = run
         if (r == null) {
@@ -586,6 +645,7 @@ object Engine {
             markActive = markFrom != null,
             pendingMark = pendingMark,
             markText = markText,
+            arrived = arrivedAt,
             tick = tick
         )
     }
