@@ -208,6 +208,20 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
       <button class="btn" id="bSim">Örnek sürüşü oynat</button>
       <button class="btn" id="bStop" disabled>Durdur</button>
     </div>
+    <div class="src" id="markBox">
+      <div class="src-h"><strong>Burada koridor var mı?</strong><span id="markState">Listede olmayanı kendin ekle</span></div>
+      <p class="help" id="markHelp">Koridorun ilk kamerasını geçerken “Başı burası”na, son kamerasını geçerken “Sonu burası”na dokun (yolcu koltuğundan). Bir dahaki geçişte otomatik tanınır.</p>
+      <div class="controls">
+        <button class="btn" id="mStart">Başı burası</button>
+        <button class="btn" id="mEnd" disabled>Sonu burası</button>
+      </div>
+      <div class="limedit" id="mSave" hidden>
+        <label for="mLim">Levhadaki limit</label>
+        <input id="mLim" type="number" inputmode="numeric" min="20" max="160" step="10" value="90">
+        <input id="mName" type="text" placeholder="Ad (isteğe bağlı)" style="flex:1 1 140px;width:auto;font:15px var(--body)">
+        <button class="btn primary" id="mOk">Kaydet</button>
+      </div>
+    </div>
     <label class="row"><input type="checkbox" id="voice" checked> Sesli bildirim (Türkçe)</label>
     <p class="help">Zaman payı, ortalamanı limitte tutman için elinde kalan saniyedir. Durduğunda bu pay büyür; tekrar yola çıktığında ne kadar kazandığını sesli söylerim. Ölçüm GPS'e dayanır ve resmi cihazla birebir aynı olmayabilir; kararı her zaman levhalar ve yasal limit belirler.</p>
   </section>
@@ -244,6 +258,10 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
 
   <!-- KAYNAKLAR -->
   <section id="p-src" class="wrap" hidden>
+    <div class="src">
+      <div class="src-h"><strong>EGM · Ortalama hız tespit noktaları</strong><span id="egmState">50 koridor</span></div>
+      <p class="help">EGM EDS haritasındaki koordinatlı OHTS giriş–çıkış çiftleri (İstanbul ve Kayseri), 30 Ekim 2026'da alındı. EGM limit yayınlamıyor; limit, koridora girince bulunduğun yolun OSM kaydından alınır ya da levhaya dokunup girersin. Şehirlerarası koridorları EGM yalnızca resim olarak yayınlıyor; onlar için OSM'yi veya “Burada koridor var mı?” işaretlemesini kullan.</p>
+    </div>
     <div class="src">
       <div class="src-h"><strong>Kaynak 1 · OpenStreetMap</strong><span id="osmState">Yüklenmedi</span></div>
       <p class="help">Türkiye'deki <code>enforcement=average_speed</code> kayıtlarını Overpass üzerinden canlı çeker. Sayfa normal bir tarayıcıda (ör. GitHub Pages) açıldığında çalışır.</p>
@@ -286,6 +304,16 @@ const fmtSlack = s => (s >= 0 ? '+' : '−') + fmtT(Math.abs(s));
 const DEMO = { id:'demo', name:'Örnek koridor (gerçek değil)', from:{lat:39.9000, lon:32.6000}, to:{lat:39.9600, lon:32.7100}, limit:90, sources:['demo'] };
 DEMO.length = dist(DEMO.from, DEMO.to);
 
+/* EGM EDS haritasından alınan ortalama hız (OHTS) giriş–çıkış çiftleri · 30.10.2026 */
+const EGM_RAW = [["Ataköy",40.975891,28.86431,40.971031,28.844084],["Florya",40.97786,28.80433,40.986492,28.798702],["Bağdat Cad.",40.962441,29.076555,40.971105,29.060581],["Sarıyer Kazıklıyol",41.162079,29.04746,41.157308,29.03672],["Hava Harp Okulu",40.96983,28.841113,40.974848,28.87821],["Mahmutbey- Habipler",41.075419,28.838614,41.105158,28.850203],["Habipler-Mahmutbey",41.109705,28.848524,41.075546,28.738463],["Unkapanı",41.020852,28.959619,41.025512,28.968127],["Zincirlikuyu-Haliç",41.067022,29.006827,41.051226,28.949551],["Cevizlibağ-Haliç",41.021537,28.919284,41.05003,28.948179],["Avcılar Haramidere",40.98937,28.716272,41.004109,28.685841],["Beylikdüzü Haramidere",41.018735,28.632734,41.006064,28.669256],["Avcılar Küçükçekmece",40.977924,28.73632,40.98307,28.759648],["Uzunçayır Altunizade",41.002216,29.05883,41.019188,29.05112],["Sultançiftliği Habipler",41.092262,28.862106,41.107951,28.850287],["Habipler-Arnavutköy",41.115154,28.845171,41.13457,28.824506],["Habipler-Arnavutköy",41.155463,28.787416,41.161422,28.775],["Arnavutköy-Habipler",41.133839,28.824874,41.11509,28.844995],["Hasdal Kemerburgaz Yolu",41.120691,28.946457,41.134801,28.933229],["Hasdal Kemerburgaz Yolu",41.137813,28.920945,41.155876,28.897685],["Hasdal Kemerburgaz Yolu",41.155798,28.897507,41.120675,28.946251],["Ümraniye Çekmeköy Şile Yolu",41.031268,29.135586,41.025011,29.17627],["Çekmeköy Ümraniye Şile Yolu",41.025362,29.176119,41.031634,29.135854],["Çetin Emeç Bulvarı",40.963987,29.065162,40.95749,29.075552],["Çetin Emeç Bulvarı",40.957537,29.075541,40.952604,29.09071],["Bağdat Caddesi",40.955134,29.091543,40.962452,29.076574],["Formula Yolu",40.934711,29.357807,40.922449,29.374394],["Formula Yolu",40.942277,29.372781,40.935073,29.359058],["Kağıthane Piyalepaşa Tünel",41.063359,28.95465,41.054292,28.969337],["Piyalepaşa Kağıthane Tünel",41.054469,28.969628,41.063457,28.954939],["Bomonti Dolmabahçe Tünel",41.058333,28.97637,41.041914,28.992599],["Dolmabahçe Bomonti Tünel",41.042168,28.992593,41.058509,28.976531],["Sarıyer Çayırbaşı Tünel",41.1734,29.038153,41.157912,29.026416],["Çayırbaşı Sarıyer Tünel",41.157986,29.026708,41.173489,29.038807],["Tarlabaşı Taksim Tünel",41.037515,28.984044,41.039604,28.986113],["Taksim Tarlabaşı Tünel",41.039647,28.986005,41.037587,28.983978],["Kadıköy Yenikapı Avrasya Tünel",41.005671,29.027229,41.002466,28.969458],["Halit Ulukurt Tüneli Elmalı",41.122702,29.131779,41.138143,29.121792],["Elmalı Halit Ulukurt Tüneli",41.138018,29.121737,41.122785,29.131574],["Operatör Cemil Topuzlu Cad.",40.967302,29.056412,40.963992,29.065068],["KOCASİNAN BULVARI KARAYOLLARI BÖLGE MÜDÜRLÜĞÜ KÖPRÜ → İLÇE JANDARMA KOMUTANLIĞI",38.725402,35.461091,38.738915,35.509945],["KOCASİNAN BULVARI ESKİ SANAYİ KATILIM → İLÇE JANDARMA KOMUTANLIĞI",38.727911,35.473989,38.738915,35.509945],["KOCASİNAN BULVARI İLÇE JANDARMA KOMUTANLIĞI → KÜÇÜKÇALIK ANADOLU LİSESİ KARŞISI",38.739023,35.509755,38.732345,35.487518],["KOCASİNAN BULVARI KOCASİNAN İLÇE JANDARMA KOMUTANLIĞI → GAZİ OSMAN PAŞA MAHALLESİ",38.739023,35.509755,38.727853,35.473098],["KOCASİNAN BULVARI KOCASİNAN İLÇE JANDARMA KOMUTANLIĞI → KARAYOLLARI BÖLGE MÜDÜRLÜĞÜ KÖPRÜ",38.739023,35.509755,38.725618,35.461321],["MUSTAFA KEMAL PAŞA BULVARI GELİNCİK SOKAK → YEŞİLIRMAK CADDE",38.716857,35.501055,38.729741,35.496071],["MUSTAFA KEMAL PAŞA BULVARI GELİNCİK SOKAK → KASKİ",38.716857,35.501055,38.739087,35.491561],["MUSTAFA KEMAL PAŞA BULVARI KASKİ → ACIBADEM HASTANESİ",38.738396,35.491658,38.715381,35.500624],["KERKÜK BULVARI ERCİYES ÜNİVERSİTESİ REKTÖRLÜK → TALAS",38.709968,35.532018,38.697499,35.53774],["KERKÜK BULVARI ÇİMENLİ CADDESİ (TEKDEN KOLEJİ) → ERCİYES ÜNİVERSİTESİ REKTÖRLÜK",38.697069,35.538117,38.710868,35.532091]];
+const trCase = s => s.toLocaleLowerCase('tr-TR').replace(/(^|[\s(\-→])(\S)/g, (m, a, b) => a + b.toLocaleUpperCase('tr-TR'));
+const egmList = EGM_RAW.map((r, i) => {
+  const from = { lat:r[1], lon:r[2] }, to = { lat:r[3], lon:r[4] };
+  const city = r[1] < 39.5 ? 'Kayseri' : 'İstanbul';
+  const nm = /[a-zçğıöşü]/.test(r[0]) ? r[0] : trCase(r[0]);
+  return { id:'egm' + i, name: city + ' · ' + nm, from, to, limit:null, length: dist(from, to) * 1.1 };
+});
+let userList = store.get('eds_user') || [];
 let osmList = store.get('eds_osm') || [];
 let bList = store.get('eds_b') || [];
 let osmMeta = store.get('eds_osm_meta') || null;
@@ -316,6 +344,8 @@ function merge(){
       if (hit.name.startsWith('OSM koridoru') && c.name) hit.name = c.name;
     } else out.push({ ...c, sources:[src] });
   };
+  userList.forEach(c => add(c, 'user'));
+  egmList.forEach(c => add(c, 'egm'));
   osmList.forEach(c => add(c, 'osm'));
   bList.forEach(c => add(c, 'b'));
   out.forEach(applyOv); applyOv(DEMO);
@@ -326,7 +356,7 @@ function merge(){
 
 function renderStatus(){
   const both = corridors.filter(c => c.sources.length > 1).length;
-  $('srcTxt').textContent = corridors.length ? corridors.length + ' koridor · ' + both + ' doğrulanmış' : 'Koridor yok';
+  $('srcTxt').textContent = corridors.length ? corridors.length + ' koridor (EGM ' + egmList.length + ', OSM ' + osmList.length + (userList.length ? ', senin ' + userList.length : '') + ')' : 'Koridor yok';
   $('osmState').textContent = osmMeta ? osmList.length + ' koridor · ' + new Date(osmMeta.t).toLocaleDateString('tr-TR') : 'Yüklenmedi';
   $('bState').textContent = bList.length + ' koridor';
 }
@@ -347,8 +377,14 @@ function renderList(){
     const sp = document.createElement('span'); sp.textContent = fmtKm(c.length);
     const ch = document.createElement('div'); ch.className = 'chips';
     const chip = (txt, cls) => { const e = document.createElement('span'); e.className = 'chip ' + (cls||''); e.textContent = txt; ch.append(e); };
-    if (c.sources.length > 1) chip('İki kaynak ✓', 'both');
-    else chip(c.sources[0] === 'osm' ? 'Yalnız OSM' : 'Yalnız 2. liste');
+    const SN = { egm:'EGM', osm:'OSM', b:'2. liste', user:'Senin işaretin', demo:'Örnek' };
+    if (c.sources.length > 1) chip(c.sources.map(x => SN[x]).join(' + ') + ' ✓', 'both');
+    else chip(SN[c.sources[0]] || c.sources[0]);
+    if (c.sources.includes('user')){
+      const del = document.createElement('button'); del.className = 'chip'; del.textContent = 'Sil'; del.style.cursor = 'pointer'; del.style.background = 'none';
+      del.onclick = () => { userList = userList.filter(u => u.id !== c.id); store.set('eds_user', userList); merge(); };
+      ch.append(del);
+    }
     if (c.conflict) chip(c.conflict, 'conf');
     if (c.manual) chip('Limit elle girildi');
     else if (!c.limit) chip('Limit bilinmiyor', 'conf');
@@ -456,7 +492,8 @@ function onFix(f){   // f: {lat, lon, t(ms), speed(m/s|null), acc}
   if (!run){
     const pool = corridors.concat(mode === 'sim' ? [DEMO] : []);
     approach(f, pool);
-    const c = pool.find(c => dist(f, c.from) < ENTRY);
+    rejected.forEach(k => { const c = pool.find(p => key(p) === k); if (!c || dist(f, c.from) > 800) rejected.delete(k); });
+    const c = pool.find(c => dist(f, c.from) < ENTRY && !rejected.has(key(c)));
     if (c) startRun(c, f);
   } else run.check(f);
   render();
@@ -578,7 +615,7 @@ function startRun(c, f){
       const dEnd = dist(f, this.c.to);
       if (!this.confirmed && this.traveled > 250){
         if (dEnd < this.startD - 100){ this.confirmed = true; announceStart(this.c); }
-        else { run = null; return; }       // ters yön
+        else { rejected.add(key(this.c)); run = null; return; }       // ters yön / başka kol
       }
       if (this.confirmed && (dEnd < ENTRY || this.traveled > this.c.length * 1.2)) finishRun();
       else if (this.confirmed && this.c.limit && this.avg && this.elapsed > 60 && this.avg > this.c.limit && this.stopStart == null)
@@ -586,7 +623,19 @@ function startRun(c, f){
     }
   };
 }
+const rejected = new Set();
+async function fillLimit(c){
+  if (c.limit || mode !== 'gps') return;
+  try{
+    const q = '[out:json][timeout:10];way(around:30,' + c.from.lat + ',' + c.from.lon + ')[highway][maxspeed];out tags 3;';
+    const r = await fetch('https://overpass-api.de/api/interpreter', { method:'POST', body:'data=' + encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'} });
+    const j = await r.json(); const w = j.elements && j.elements[0];
+    const v = w ? parseInt(w.tags.maxspeed, 10) : NaN;
+    if (v > 0 && !c.limit){ c.limit = v; c.limitSrc = 'yol'; say('Bu koridorda yol limiti ' + v + ' görünüyor. Levhayı kontrol et.'); render(); }
+  } catch(e){}
+}
 function announceStart(c){
+  fillLimit(c);
   say('Ortalama hız koridoru başladı. ' + (c.limit ? 'Limit ' + c.limit + '. ' : 'Limit bilinmiyor. ') + 'Uzunluk ' + (c.length/1000).toFixed(1).replace('.', ',') + ' kilometre.');
 }
 let lastResult = null;
@@ -652,6 +701,38 @@ function render(){
     showNote(note, 'Son mola ' + fmtT(n.dur) + ' sürdü: ortalama ' + n.a0 + ' → ' + n.a1 + ' km/s, +' + Math.round(n.gain) + ' sn pay.', 'stop');
   } else note.hidden = true;
 }
+
+/* ---------- Koridoru elle işaretle ---------- */
+let mark = null;
+$('mStart').onclick = () => {
+  if (!prev){ $('markState').textContent = 'Önce GPS ile başlat'; return; }
+  mark = { from:{ lat:prev.lat, lon:prev.lon }, d0: trip ? trip.dist : 0 };
+  $('mEnd').disabled = false; $('mSave').hidden = true;
+  $('markState').textContent = 'Başlangıç kaydedildi, sonu bekleniyor';
+  say('Koridor başı kaydedildi.');
+};
+$('mEnd').onclick = () => {
+  if (!mark || !prev) return;
+  mark.to = { lat:prev.lat, lon:prev.lon };
+  const driven = trip ? trip.dist - mark.d0 : 0;
+  mark.length = Math.max(dist(mark.from, mark.to), driven);
+  if (mark.length < 300){ $('markState').textContent = 'Çok kısa, tekrar dene'; return; }
+  $('mLim').value = (run && run.c.limit) || roadLim || 90;
+  $('mSave').hidden = false; $('mEnd').disabled = true;
+  $('markState').textContent = fmtKm(mark.length) + ' · limiti gir ve kaydet';
+};
+$('mOk').onclick = () => {
+  if (!mark || !mark.to) return;
+  const lim = parseInt($('mLim').value, 10);
+  if (!(lim >= 20 && lim <= 160)){ $('markState').textContent = 'Limit 20–160 arası olmalı'; return; }
+  const c = { id:'u' + Date.now(), name: ($('mName').value.trim() || 'Benim koridorum ' + (userList.length + 1)), from:mark.from, to:mark.to, limit:lim, length:mark.length };
+  userList.push(c); store.set('eds_user', userList);
+  ov[key(c)] = lim; store.set('eds_ov', ov);
+  mark = null; $('mSave').hidden = true; $('mName').value = '';
+  $('markState').textContent = 'Kaydedildi: ' + c.name;
+  say('Koridor kaydedildi.');
+  merge();
+};
 
 /* ---------- Kalan yol hesaplayıcı ---------- */
 let wiTouched = false;
