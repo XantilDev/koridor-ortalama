@@ -197,18 +197,17 @@ object RouteSession {
         }
     }
 
-    // Önce yerin kendi işareti (!3d!4d), sonra linkteki/sayfadaki diğer koordinat biçimleri.
+    // Yalnızca yerin kendi işareti ya da açık koordinat kabul edilir. Haritanın görünüm merkezi (@…, center=)
+    // Google'ın bağlantıya göre açtığı varsayılan bölgedir (ör. Ankara), hedef olarak kullanılmaz.
     private val reCoords = listOf(
         Regex("!3d(-?\\d+\\.\\d+)!4d(-?\\d+\\.\\d+)"),
-        Regex("@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)"),
-        Regex("[?&](?:q|ll|query|destination|daddr)=(-?\\d+\\.\\d+)(?:,|%2C)\\s*(-?\\d+\\.\\d+)"),
-        Regex("center=(-?\\d+\\.\\d+)(?:,|%2C)(-?\\d+\\.\\d+)")
+        Regex("[?&](?:q|ll|query|destination|daddr)=(-?\\d+\\.\\d+)(?:,|%2C)\\s*(-?\\d+\\.\\d+)")
     )
-
-    private val rePlaceAt = Regex("/maps/place/[^/@?]+/@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)")
+    private val reFtid = Regex("(0x[0-9a-f]{6,}:0x[0-9a-f]{6,})")
+    private val reCid = Regex("[?&]cid=(\\d+)")
 
     private fun coordsIn(s: String): LatLng? {
-        for (re in reCoords + rePlaceAt) {
+        for (re in reCoords) {
             val m = re.find(s) ?: continue
             val lat = m.groupValues[1].toDoubleOrNull() ?: continue
             val lon = m.groupValues[2].toDoubleOrNull() ?: continue
@@ -220,17 +219,6 @@ object RouteSession {
     private const val DESKTOP_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36"
 
-    /** Google Haritalar sayfasının başlangıç durumundaki merkez: [[[mesafe, boylam, enlem]... */
-    private val reAppState = Regex("APP_INITIALIZATION_STATE=\\[\\[\\[(-?\\d+(?:\\.\\d+)?),(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)\\]")
-    private val reOgTitle = Regex("<meta[^>]+(?:property|itemprop)=\"(?:og:title|name)\"[^>]+content=\"([^\"]+)\"|<meta[^>]+content=\"([^\"]+)\"[^>]+(?:property|itemprop)=\"(?:og:title|name)\"")
-
-    private fun appState(body: String): LatLng? {
-        val m = reAppState.find(body) ?: return null
-        val lon = m.groupValues[2].toDoubleOrNull() ?: return null
-        val lat = m.groupValues[3].toDoubleOrNull() ?: return null
-        return if (lat in 35.0..43.0 && lon in 25.0..45.5) LatLng(lat, lon) else null
-    }
-
     /** Yönlendirmeleri tek tek izler; son adresi ve sayfa içeriğini döner. */
     private fun follow(start: String): Pair<String, String> {
         var u = start
@@ -241,13 +229,11 @@ object RouteSession {
             c.readTimeout = 20000
             c.setRequestProperty("User-Agent", DESKTOP_UA)
             c.setRequestProperty("Accept-Language", "tr-TR,tr;q=0.9")
-            c.setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
             val code = c.responseCode
             val loc = c.getHeaderField("Location")
             if (code in 300..399 && loc != null) {
                 u = URL(URL(u), loc).toString()
                 c.disconnect()
-                if (coordsIn(u) != null) return u to ""
                 continue
             }
             val body = try {
@@ -261,49 +247,62 @@ object RouteSession {
         return u to ""
     }
 
+    /** Google'ın firma kartı: firma kimliğinden gerçek konum, ad ve adres. */
+    private fun previewPlace(ftid: String): Places.Place? {
+        val pb = "!1m14!1s$ftid!3m12!1m3!1d1000!2d35.0!3d39.0!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1"
+        val (_, t) = follow(
+            "https://www.google.com/maps/preview/place?authuser=0&hl=tr&gl=tr&pb=" +
+                java.net.URLEncoder.encode(pb, "UTF-8")
+        )
+        if (t.isBlank()) return null
+        try {
+            val a = org.json.JSONArray(t.substringAfter('\n'))
+            val d = a.getJSONArray(6)
+            val c = d.getJSONArray(9)
+            val lat = c.getDouble(2)
+            val lon = c.getDouble(3)
+            val addr = d.optString(39).takeIf { it != "null" } ?: ""
+            val name = d.optString(11).takeIf { it.isNotBlank() && it != "null" } ?: "Paylaşılan yer"
+            val prov = if (addr.contains('/')) addr.substringAfterLast('/').trim() else null
+            if (lat in 35.0..43.0 && lon in 25.0..45.5) return Places.Place(name, addr, lat, lon, prov)
+        } catch (_: Exception) {
+        }
+        val m = Regex("\\[null,null,(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)\\]").find(t) ?: return null
+        val lat = m.groupValues[1].toDouble()
+        val lon = m.groupValues[2].toDouble()
+        return if (lat in 35.0..43.0 && lon in 25.0..45.5) Places.Place("Paylaşılan yer", "", lat, lon, null) else null
+    }
+
     var lastSharedDebug: String = ""
 
     private suspend fun resolveShared(text: String): Places.Place? = withContext(Dispatchers.IO) {
         val url = Regex("https?://\\S+").find(text)?.value ?: return@withContext null
-        var name = text.substringBefore(url).lineSequence().map { it.trim().trimEnd(',') }
+        val sharedName = text.substringBefore(url).lineSequence().map { it.trim().trimEnd(',') }
             .firstOrNull { it.isNotBlank() }
-        fun place(ll: LatLng) = Places.Place(name ?: "Paylaşılan yer", "Google Haritalar", ll.lat, ll.lon, null)
+        fun named(p: Places.Place) = if (sharedName != null) p.copy(name = sharedName) else p
+        fun pin(ll: LatLng) = Places.Place(sharedName ?: "Paylaşılan yer", "Google Haritalar", ll.lat, ll.lon, null)
 
-        coordsIn(url)?.let { return@withContext place(it) }
+        coordsIn(url)?.let { return@withContext pin(it) }
         val (finalUrl, body) = follow(url)
         lastSharedDebug = finalUrl.take(160)
-        if (name == null) {
-            reOgTitle.find(body)?.let { m ->
-                name = (m.groupValues[1].ifBlank { m.groupValues[2] }).substringBefore(" · ").trim().ifBlank { null }
-            }
-            if (name == null) {
-                Regex("/maps/place/([^/@?]+)").find(finalUrl)?.let {
-                    name = java.net.URLDecoder.decode(it.groupValues[1], "UTF-8").replace('+', ' ')
-                }
-            }
-        }
-        (coordsIn(finalUrl) ?: coordsIn(body) ?: appState(body))?.let { return@withContext place(it) }
+        coordsIn(finalUrl)?.let { return@withContext pin(it) }
 
-        // Firma kimliği (cid/ftid) varsa haritalar sayfasını açıp merkezi oku
-        val cid = Regex("[?&]cid=(\\d+)").find(finalUrl)?.groupValues?.get(1)
-        val ftid = Regex("[?&]ftid=([0-9a-fx:]+)").find(finalUrl)?.groupValues?.get(1)
-        val alt = when {
-            cid != null -> "https://www.google.com/maps?cid=$cid&hl=tr"
-            ftid != null -> "https://www.google.com/maps/place/data=!4m2!3m1!1s$ftid?hl=tr"
-            else -> null
-        }
-        if (alt != null) {
-            val (u2, b2) = follow(alt)
-            (coordsIn(u2) ?: coordsIn(b2) ?: appState(b2))?.let { return@withContext place(it) }
+        // Firma kimliği: linkte, yoksa sayfada; cid varsa 0x0:0x<cid>
+        val ftid = reFtid.find(finalUrl)?.value
+            ?: reCid.find(finalUrl)?.groupValues?.get(1)?.toBigIntegerOrNull()?.let { "0x0:0x" + it.toString(16) }
+            ?: reFtid.find(body)?.value
+        if (ftid != null) {
+            previewPlace(ftid)?.let { return@withContext named(it) }
         }
 
-        // Son çare: linkteki arama metni ya da isimle adres araması
+        // Linkte açık adres/isim araması varsa
         val q = Regex("[?&]q=([^&]+)").find(finalUrl)?.groupValues?.get(1)
             ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
-        val n = name
-        for (term in listOfNotNull(q, n).distinct()) {
+        val placeName = Regex("/maps/place/([^/@?]+)").find(finalUrl)?.groupValues?.get(1)
+            ?.let { java.net.URLDecoder.decode(it, "UTF-8").replace('+', ' ') }
+        for (term in listOfNotNull(q, sharedName, placeName).distinct()) {
             val hit = Places.search(term, null).firstOrNull()
-            if (hit != null) return@withContext hit.copy(name = n ?: hit.name)
+            if (hit != null) return@withContext named(hit)
         }
         null
     }
