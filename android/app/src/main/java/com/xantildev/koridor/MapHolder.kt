@@ -21,6 +21,8 @@ class MapHolder(ctx: Context) {
     var onUserPan: () -> Unit = {}
 
     private val trail = Polyline(map)
+    private val routeLine = Polyline(map)
+    private var drawnRoute: RouteSession.Info? = null
     private val you = Marker(map)
     private val corr = FolderOverlay()
     private var drawnKey = -1
@@ -38,6 +40,9 @@ class MapHolder(ctx: Context) {
         you.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
         you.icon = dot(0xFFF2B632.toInt(), Color.WHITE, 44)
         you.setInfoWindow(null)
+        routeLine.outlinePaint.color = 0xCC4DA3FF.toInt()
+        routeLine.outlinePaint.strokeWidth = 10f
+        map.overlays.add(routeLine)
         map.overlays.add(corr)
         map.overlays.add(trail)
         map.setOnTouchListener { v, ev ->
@@ -60,6 +65,11 @@ class MapHolder(ctx: Context) {
         if (key != drawnKey) {
             drawnKey = key
             drawCorridors(sim)
+        }
+        val ri = RouteSession.info
+        if (ri !== drawnRoute) {
+            drawnRoute = ri
+            routeLine.setPoints(ri?.line?.map { GeoPoint(it.lat, it.lon) } ?: emptyList())
         }
         if (s.track.size != lastTrackSize) {
             lastTrackSize = s.track.size

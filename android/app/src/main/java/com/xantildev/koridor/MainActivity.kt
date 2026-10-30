@@ -2,6 +2,7 @@ package com.xantildev.koridor
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -110,6 +111,19 @@ class MainActivity : ComponentActivity() {
                 Surface(Modifier.fillMaxSize(), color = Bg) { Root() }
             }
         }
+        handleShare(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleShare(intent)
+    }
+
+    private fun handleShare(i: Intent?) {
+        if (i?.action != Intent.ACTION_SEND) return
+        val text = i.getStringExtra(Intent.EXTRA_TEXT) ?: return
+        i.action = null
+        RouteSession.fromShared(this, text)
     }
 }
 
@@ -125,18 +139,18 @@ private fun perms(): Array<String> =
 
 @Composable
 private fun Root() {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    val tab = Nav.tab
     val s by Engine.state.collectAsStateWithLifecycle()
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         StatusLine(s, ver)
         TabRow(selectedTabIndex = tab, containerColor = Bg, contentColor = Fg) {
             listOf("Sürüş", "Nereye?", "Koridorlar").forEachIndexed { i, t ->
-                Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t, fontWeight = FontWeight.SemiBold) })
+                Tab(selected = tab == i, onClick = { Nav.tab = i }, text = { Text(t, fontWeight = FontWeight.SemiBold) })
             }
         }
         when (tab) {
-            0 -> DriveTab(s, ver) { tab = 1 }
+            0 -> DriveTab(s, ver) { Nav.tab = 1 }
             1 -> RouteTab()
             else -> ListTab(ver)
         }
@@ -179,10 +193,14 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        OutlinedButton(onClick = onGoRoute, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-            Text("Nereye gidiyorsun?  Adres, firma ya da yer ara", color = Fg)
+        val route = RouteSession.info
+        if (route == null) {
+            OutlinedButton(onClick = onGoRoute, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                Text("Nereye gidiyorsun?  Adres, firma ya da yer seç", color = Fg)
+            }
         }
         Hud(s) { limitFor = it }
+        if (route != null) TripCard(s, route, onGoRoute)
         if (s.confirmed && s.corridor?.limit != null) WhatIf(s)
         Box(Modifier.fillMaxWidth().height(260.dp).clip(Card).border(1.dp, Line, Card)) { LiveMap(s, ver) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -512,50 +530,11 @@ private fun <T> Picker(
 @Composable
 private fun RouteTab() {
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var q by rememberSaveable { mutableStateOf("") }
-    var places by remember { mutableStateOf<List<Places.Place>>(emptyList()) }
     var home by remember { mutableStateOf(Places.loadSlot(ctx, "ev")) }
     var work by remember { mutableStateOf(Places.loadSlot(ctx, "is")) }
-    var busy by remember { mutableStateOf(false) }
-    var msg by remember { mutableStateOf<String?>(null) }
-    var msgBad by remember { mutableStateOf(false) }
-    var target by remember { mutableStateOf<Places.Place?>(null) }
-    var result by remember { mutableStateOf<List<Corridor>?>(null) }
     var manual by remember { mutableStateOf(false) }
-
-    fun go(p: Places.Place) {
-        val here = Places.currentLocation(ctx)
-        if (here == null) {
-            msg = "Şu anki konumun bilinmiyor. Sürüş ekranında “GPS ile başlat”a bas, konum gelince tekrar dene."
-            msgBad = true
-            return
-        }
-        busy = true
-        target = p
-        result = null
-        msg = "Rota hesaplanıyor: ${p.name}…"
-        msgBad = false
-        places = emptyList()
-        scope.launch {
-            try {
-                val a = DistrictFinder.nearest(here, null)
-                val b = DistrictFinder.nearest(p.ll, p.province)
-                val list = TrafikApi.route(a, b)
-                CorridorStore.addRoute(list)
-                result = list
-                msg = null
-                Engine.say(
-                    if (list.isEmpty()) "Bu rotada ortalama hız koridoru bulunamadı."
-                    else "Rotanızda ${list.size} ortalama hız koridoru var."
-                )
-            } catch (e: Exception) {
-                msg = "Rota alınamadı: ${e.message ?: "bağlantı hatası"}."
-                msgBad = true
-            }
-            busy = false
-        }
-    }
+    val rs = RouteSession
+    val info = rs.info
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -563,40 +542,27 @@ private fun RouteTab() {
     ) {
         Text("Nereye gidiyorsun?", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Fg)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SlotButton("Ev", home, Modifier.weight(1f), enabled = !busy) { home?.let { go(it) } ?: run { msg = "Ev kayıtlı değil. Adresini arayıp sonuçta “Ev yap”a dokun."; msgBad = true } }
-            SlotButton("İş", work, Modifier.weight(1f), enabled = !busy) { work?.let { go(it) } ?: run { msg = "İş kayıtlı değil. Adresini arayıp sonuçta “İş yap”a dokun."; msgBad = true } }
+            SlotButton("Ev", home, Modifier.weight(1f), enabled = !rs.busy) {
+                home?.let { rs.go(ctx, it) } ?: run { rs.msg = "Ev kayıtlı değil. Adresini arayıp sonuçta “Ev yap”a dokun."; rs.msgBad = true }
+            }
+            SlotButton("İş", work, Modifier.weight(1f), enabled = !rs.busy) {
+                work?.let { rs.go(ctx, it) } ?: run { rs.msg = "İş kayıtlı değil. Adresini arayıp sonuçta “İş yap”a dokun."; rs.msgBad = true }
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
-                value = q, onValueChange = { q = it },
-                label = { Text("Firma, adres ya da yer") }, singleLine = true,
+                value = rs.query, onValueChange = { rs.query = it },
+                label = { Text("Adres ya da yer") }, singleLine = true,
                 modifier = Modifier.weight(1f)
             )
-            Button(
-                onClick = {
-                    val text = q.trim()
-                    if (text.isNotEmpty()) {
-                        busy = true
-                        msg = "Aranıyor…"
-                        msgBad = false
-                        scope.launch {
-                            try {
-                                places = Places.search(text, Places.currentLocation(ctx))
-                                msg = if (places.isEmpty()) "Sonuç bulunamadı. Firma adıyla bulunmazsa adresini ya da semtini yaz (ör. “Organize Sanayi, Kırıkkale”)." else null
-                                msgBad = places.isEmpty()
-                            } catch (e: Exception) {
-                                msg = "Arama yapılamadı: ${e.message ?: "bağlantı hatası"}."
-                                msgBad = true
-                            }
-                            busy = false
-                        }
-                    }
-                },
-                enabled = !busy, modifier = Modifier.height(56.dp)
-            ) { Text("Ara") }
+            Button(onClick = { rs.search(ctx) }, enabled = !rs.busy, modifier = Modifier.height(56.dp)) { Text("Ara") }
         }
-        msg?.let { NoteBox(it, if (msgBad) Over else Line) }
-        places.forEach { p ->
+        Text(
+            "Firmalar için en iyisi: Google Haritalar'da firmayı aç → Paylaş → Koridor Ortalama. Uygulama konumu oradan alır.",
+            color = Accent, fontSize = 13.sp
+        )
+        rs.msg?.let { NoteBox(it, if (rs.msgBad) Over else Line) }
+        rs.results.forEach { p ->
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel)
                     .border(1.dp, Line, RoundedCornerShape(12.dp)).padding(12.dp),
@@ -605,28 +571,104 @@ private fun RouteTab() {
                 Text(p.name, color = Fg, fontWeight = FontWeight.SemiBold)
                 if (p.detail.isNotBlank()) Text(p.detail, color = Muted, fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(onClick = { go(p) }, enabled = !busy, modifier = Modifier.weight(1.4f)) { Text("Git") }
-                    OutlinedButton(onClick = { Places.saveSlot(ctx, "ev", p); home = p; msg = "Ev kaydedildi: ${p.name}"; msgBad = false }, modifier = Modifier.weight(1f)) { Text("Ev yap", color = Fg) }
-                    OutlinedButton(onClick = { Places.saveSlot(ctx, "is", p); work = p; msg = "İş kaydedildi: ${p.name}"; msgBad = false }, modifier = Modifier.weight(1f)) { Text("İş yap", color = Fg) }
+                    Button(onClick = { rs.go(ctx, p) }, enabled = !rs.busy, modifier = Modifier.weight(1.4f)) { Text("Git") }
+                    OutlinedButton(onClick = { Places.saveSlot(ctx, "ev", p); home = p; rs.msg = "Ev kaydedildi: ${p.name}"; rs.msgBad = false }, modifier = Modifier.weight(1f)) { Text("Ev yap", color = Fg) }
+                    OutlinedButton(onClick = { Places.saveSlot(ctx, "is", p); work = p; rs.msg = "İş kaydedildi: ${p.name}"; rs.msgBad = false }, modifier = Modifier.weight(1f)) { Text("İş yap", color = Fg) }
                 }
             }
         }
-        result?.let { list ->
-            val total = list.sumOf { it.lengthM }
-            Text(
-                (target?.let { "${it.name} rotası · " } ?: "") +
-                    if (list.isEmpty()) "kayıtlı ortalama hız koridoru yok." else "${list.size} koridor, toplam ${Geo.fmtKm(total)}",
-                color = Fg, fontWeight = FontWeight.SemiBold
-            )
-            if (list.isNotEmpty()) Text("Hepsi kaydedildi; sürüşte otomatik tanınır ve yaklaşırken sesli uyarı verilir.", color = Muted, fontSize = 13.sp)
-            list.forEach { CorridorRow(it) }
+        if (info != null) {
+            Column(
+                Modifier.fillMaxWidth().clip(Card).background(Panel).border(1.dp, Accent, Card).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Hedef: ${info.target.name}", color = Fg, fontWeight = FontWeight.Bold)
+                Text(
+                    "${Geo.fmtKm(info.totalM)} · yaklaşık ${durText(info.durationS)} · " +
+                        if (info.corridors.isEmpty()) "kayıtlı koridor yok" else "${info.corridors.size} koridor, toplam ${Geo.fmtKm(info.corridors.sumOf { it.lengthM })}",
+                    color = Muted, fontSize = 13.sp
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { Nav.tab = 0 }, modifier = Modifier.weight(1f)) { Text("Sürüşe dön") }
+                    OutlinedButton(onClick = { RouteSession.openInMaps(ctx, info.target) }, modifier = Modifier.weight(1f)) { Text("Yol tarifi (Haritalar)", color = Fg) }
+                }
+                TextButton(onClick = { rs.clear() }) { Text("Hedefi kaldır", color = Over) }
+                if (info.corridors.isNotEmpty()) {
+                    Text("Hepsi kaydedildi; sürüşte otomatik tanınır, yaklaşırken sesli uyarı verilir.", color = Muted, fontSize = 13.sp)
+                }
+            }
+            info.corridors.forEach { CorridorRow(it) }
         }
         Text(
-            "Koridorlar ve limitleri EGM Trafik Başkanlığı'nın sitesinden (trafik.gov.tr), adres araması OpenStreetMap'ten gelir.",
+            "Koridorlar ve limitleri EGM Trafik Başkanlığı'nın sitesinden (trafik.gov.tr), adres araması ve rota çizgisi OpenStreetMap'ten gelir.",
             color = Muted, fontSize = 12.sp
         )
-        TextButton(onClick = { manual = !manual }) { Text(if (manual) "İl/ilçe ile seçimi gizle" else "Bulamazsan: il/ilçe ile seç", color = Accent) }
+        TextButton(onClick = { manual = !manual }) { Text(if (manual) "İl/ilçe ile seçimi gizle" else "İl/ilçe ile seç", color = Accent) }
         if (manual) ManualRoute()
+    }
+}
+
+private fun durText(sec: Double): String {
+    val m = (sec / 60).roundToInt()
+    return if (m >= 60) "${m / 60} sa ${m % 60} dk" else "$m dk"
+}
+
+@Composable
+private fun TripCard(s: UiState, info: RouteSession.Info, onGoRoute: () -> Unit) {
+    val pos = s.pos
+    val rem = if (pos != null) info.remainingFrom(pos) else info.totalM
+    val start = s.moveAvg?.roundToInt()?.coerceIn(30, 140) ?: 90
+    var v by remember(info) { mutableFloatStateOf(start.toFloat()) }
+    val vi = v.roundToInt()
+    val tRem = rem / (vi / 3.6)
+    val arrive = java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr", "TR"))
+        .format(java.util.Date(System.currentTimeMillis() + (tRem * 1000).toLong()))
+    val tripAvg = if (s.trip.time > 10) (s.trip.dist + rem) / (s.trip.time + tRem) * 3.6 else vi.toDouble()
+    val arrived = rem < 150
+    Column(
+        Modifier.fillMaxWidth().clip(Card).background(Panel).border(1.dp, Line, Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("HEDEF", color = Muted, fontSize = 11.sp, letterSpacing = 1.sp)
+                Text(info.target.name, color = Fg, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            TextButton(onClick = onGoRoute) { Text("Değiştir", color = Accent) }
+        }
+        if (arrived) {
+            Text("Vardın.", color = Ok, fontWeight = FontWeight.Bold)
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("KALAN YOLU ORTALAMA BU HIZLA GİDERSEM", color = Muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Text("$vi km/s", color = Accent, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            }
+            Slider(
+                value = v, onValueChange = { v = it }, valueRange = 30f..140f,
+                colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent, inactiveTrackColor = Line)
+            )
+            Row {
+                Text("Varış ≈ ", color = Fg)
+                Text(arrive, color = Accent, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Text("  (${durText(tRem)} sonra)", color = Muted)
+            }
+            Text(
+                "Kalan ${Geo.fmtKm(rem)} · yolculuk ortalaman ≈ ${tripAvg.roundToInt()} km/s",
+                color = Muted, fontSize = 13.sp
+            )
+            Text(
+                "Bu, duraksız ortalama hızdır; yol boyunca levhalardaki limitler ve koridorlar geçerli.",
+                color = Muted, fontSize = 12.sp
+            )
+        }
+        val next = info.corridors.filter { pos == null || Geo.dist(pos, it.from) > 50 }
+            .minByOrNull { if (pos == null) 0.0 else Geo.dist(pos, it.from) }
+        if (next != null && pos != null) {
+            Text(
+                "Sıradaki koridor: ${next.name} · ${Geo.fmtKm(Geo.dist(pos, next.from))} kuş uçuşu · limit ${next.limit ?: "?"}",
+                color = Fg, fontSize = 13.sp
+            )
+        }
     }
 }
 
