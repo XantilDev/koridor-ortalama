@@ -85,6 +85,8 @@ object Engine {
     private var markText = "Listede olmayanı kendin ekle"
     private var tick = 0L
     private var tripStart = 0L
+    private var lastFixWall = 0L
+    private var gapJob: Job? = null
     private val fullTrack = ArrayList<LatLng>()
     private val passes = ArrayList<CorridorPass>()
 
@@ -97,6 +99,8 @@ object Engine {
         var stopSlackBefore: Double? = null
         var stopNote: String? = null
         var stopTotal = 0.0
+        var minDEnd = Double.MAX_VALUE
+        var lastV = 10.0
         val elapsed: Double get() = (now - t0) / 1000.0
         val avg: Double? get() = if (elapsed > 5) traveled / elapsed * 3.6 else null
         val slack: Double? get() = c.limit?.let { elapsed - traveled / (it / 3.6) }
@@ -132,8 +136,22 @@ object Engine {
         markFrom = null
         pendingMark = null
         tripStart = System.currentTimeMillis()
+        lastFixWall = 0L
         fullTrack.clear()
         passes.clear()
+        gapJob?.cancel()
+        if (m == "gps") {
+            gapJob = scope.launch {
+                while (true) {
+                    delay(5000)
+                    val since = System.currentTimeMillis() - lastFixWall
+                    if (lastFixWall > 0 && since > 12000 && mode == "gps") {
+                        gpsText = "GPS sinyali yok (${since / 1000} sn) — tünel olabilir, ölçüm sürüyor"
+                        publish()
+                    }
+                }
+            }
+        }
         publish()
     }
 
@@ -166,6 +184,8 @@ object Engine {
     fun stop() {
         simJob?.cancel()
         simJob = null
+        gapJob?.cancel()
+        gapJob = null
         saveTrip()
         mode = "idle"
         gpsText = "Konum kapalı"
@@ -200,11 +220,18 @@ object Engine {
             if (dt <= 0) return
             val v: Double = f.speed ?: (d / dt)
             vOut = v
+            // Uzun kesintide (tünel vb.) duruş/hareket kararı aradaki ortalama hızla verilir
+            val vEff = if (dt > 30) d / dt else v
             val r0 = run
             val inCorridor = r0?.confirmed == true
-            if (r0 != null) step(r0, d, dt, v)
-            if (dt <= 30) {
-                val moving = v * 3.6 >= 4
+            if (r0 != null) {
+                step(r0, d, dt, vEff)
+                r0.lastV = v
+                // Koridor çizgisi üzerindeki konum: kesintide düz çizginin kısa kalmasını telafi eder
+                alongOf(r0.c, f.ll)?.let { a -> if (a > r0.traveled) r0.traveled = a }
+            }
+            if (true) {
+                val moving = vEff * 3.6 >= 4
                 trip = trip.copy(
                     dist = trip.dist + d,
                     time = trip.time + dt,
@@ -216,6 +243,7 @@ object Engine {
         }
         speedKmh = vOut?.let { (it * 3.6).roundToInt() }
         prev = f
+        lastFixWall = System.currentTimeMillis()
         track.add(f.ll)
         if (track.size > 3000) track.removeAt(0)
         val lastFull = fullTrack.lastOrNull()
@@ -242,7 +270,7 @@ object Engine {
         r.now += (dt * 1000).toLong()
         val kmh = v * 3.6
         if (kmh < 4) {
-            if (r.confirmed && dt <= 30) r.stopTotal += dt
+            if (r.confirmed) r.stopTotal += dt
             if (r.stopStart == null) {
                 r.stopStart = r.now
                 r.stopAvgBefore = r.avg
@@ -274,6 +302,8 @@ object Engine {
 
     private fun check(r: Run, f: Fix) {
         val dEnd = Geo.dist(f.ll, r.c.to)
+        val passedEnd = r.minDEnd < 1500 && dEnd > r.minDEnd + 200 && r.traveled > r.c.lengthM * 0.6
+        if (dEnd < r.minDEnd) r.minDEnd = dEnd
         if (!r.confirmed && r.traveled > 250) {
             if (dEnd < r.startD - 100) {
                 r.confirmed = true
@@ -284,8 +314,8 @@ object Engine {
                 return
             }
         }
-        if (r.confirmed && (dEnd < ENTRY || r.traveled > r.c.lengthM * 1.2)) {
-            finish(r)
+        if (r.confirmed && (dEnd < ENTRY || passedEnd || r.traveled > r.c.lengthM * 1.2)) {
+            finish(r, dEnd)
         } else if (r.confirmed) {
             val lim = r.c.limit
             val a = r.avg
@@ -293,6 +323,38 @@ object Engine {
                 say("Dikkat, ortalaman ${a.roundToInt()}. Limit $lim.", "over", 45000)
             }
         }
+    }
+
+    /** Konumun koridor boyunca girişten itibaren kaç metre ilerde olduğu (çizgiye 300 m'den uzaksa null). */
+    private fun alongOf(c: Corridor, p: LatLng): Double? {
+        val line = if (c.path.size >= 2) c.path else listOf(c.from, c.to)
+        val kx = Math.cos(Math.toRadians(p.lat)) * 111320.0
+        val ky = 110540.0
+        var best = Double.MAX_VALUE
+        var bestAlong = 0.0
+        var cum = 0.0
+        var total = 0.0
+        for (i in 0 until line.size - 1) total += Geo.dist(line[i], line[i + 1])
+        for (i in 0 until line.size - 1) {
+            val seg = Geo.dist(line[i], line[i + 1])
+            val ax = (line[i].lon - p.lon) * kx
+            val ay = (line[i].lat - p.lat) * ky
+            val bx = (line[i + 1].lon - p.lon) * kx
+            val by = (line[i + 1].lat - p.lat) * ky
+            val dx = bx - ax
+            val dy = by - ay
+            val l2 = dx * dx + dy * dy
+            val t = (if (l2 > 0) -(ax * dx + ay * dy) / l2 else 0.0).coerceIn(0.0, 1.0)
+            val d = Math.hypot(ax + t * dx, ay + t * dy)
+            if (d < best) {
+                best = d
+                bestAlong = cum + t * seg
+            }
+            cum += seg
+        }
+        if (best > 300 || total <= 0) return null
+        // Çizgi boyunu koridorun bilinen uzunluğuna ölçekle
+        return bestAlong * (c.lengthM / total)
     }
 
     private fun announceStart(r: Run) {
@@ -318,8 +380,15 @@ object Engine {
         }
     }
 
-    private fun finish(r: Run) {
-        val avg = if (r.elapsed > 0) r.traveled / r.elapsed * 3.6 else 0.0
+    /**
+     * Koridor bitişi: resmi ölçüm gibi koridor uzunluğu / iki kamera arası süre.
+     * Çıkış kamerası geçildikten sonra gelen konumda, çıkıştan sonraki kısa süre düşülür.
+     */
+    private fun finish(r: Run, dEnd: Double) {
+        val overT = dEnd / maxOf(r.lastV, 5 / 3.6)
+        val tEnd = maxOf(1.0, r.elapsed - overT)
+        val dist = maxOf(r.c.lengthM, r.traveled - dEnd)
+        val avg = dist / tEnd * 3.6
         val lim = r.c.limit
         passes.add(CorridorPass(r.c.name, lim, avg, r.elapsed, r.stopTotal, r.traveled))
         lastResult = "Son koridor: ${r.c.name} — ortalama ${avg.roundToInt()} km/s" +
@@ -437,7 +506,16 @@ object Engine {
                 x += ms
                 t += 1000
                 val k = x / len
-                onFix(Fix(c.from.lat + (c.to.lat - c.from.lat) * k, c.from.lon + (c.to.lon - c.from.lon) * k, t, ms, 8f))
+                // Örnek tünel: koridorun %62–%74 arasında GPS sinyali yok
+                if (x > 0.62 * len && x < 0.74 * len) {
+                    if (gpsText != "Örnek tünel: GPS sinyali yok") {
+                        gpsText = "Örnek tünel: GPS sinyali yok"
+                        publish()
+                    }
+                } else {
+                    if (gpsText.startsWith("Örnek tünel")) gpsText = "Örnek sürüş (×10 hız)"
+                    onFix(Fix(c.from.lat + (c.to.lat - c.from.lat) * k, c.from.lon + (c.to.lon - c.from.lon) * k, t, ms, 8f))
+                }
                 if (x > len + 300) {
                     saveTrip()
                     mode = "idle"
