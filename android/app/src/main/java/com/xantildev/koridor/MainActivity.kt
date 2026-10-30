@@ -317,7 +317,10 @@ private fun Hud(s: UiState, onSign: (Corridor) -> Unit) {
                     color = Muted, fontSize = 12.sp, letterSpacing = 1.sp
                 )
             }
-            SpeedSign(lim, clickable = inC) { if (c != null && inC) onSign(c) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                SpeedSign(lim, clickable = inC) { if (c != null && inC) onSign(c) }
+                if (inC) Text("düzeltmek için dokun", color = Muted, fontSize = 10.sp)
+            }
         }
         LinearProgressIndicator(
             progress = { s.progress },
@@ -600,6 +603,13 @@ private fun RouteTab() {
     var home by remember { mutableStateOf(Places.loadSlot(ctx, "ev")) }
     var work by remember { mutableStateOf(Places.loadSlot(ctx, "is")) }
     var manual by remember { mutableStateOf(false) }
+    var limitFor by remember { mutableStateOf<Corridor?>(null) }
+    limitFor?.let { c ->
+        LimitDialog(c, onDismiss = { limitFor = null }) { v ->
+            Engine.setLimit(c, v)
+            limitFor = null
+        }
+    }
     val rs = RouteSession
     val info = rs.info
 
@@ -666,7 +676,11 @@ private fun RouteTab() {
                     Text("Hepsi kaydedildi; sürüşte otomatik tanınır, yaklaşırken sesli uyarı verilir.", color = Muted, fontSize = 13.sp)
                 }
             }
-            info.corridors.forEach { CorridorRow(it) }
+            Text("Limiti yanlışsa koridora dokunup levhadaki değeri gir.", color = Muted, fontSize = 12.sp)
+            info.corridors.forEach { raw ->
+                val c = remember(raw.key, CorridorStore.version.value) { CorridorStore.withOverride(raw) }
+                CorridorRow(c, onClick = { limitFor = c })
+            }
         }
         Text(
             "Koridorlar ve limitleri EGM Trafik Başkanlığı'nın sitesinden (trafik.gov.tr), adres araması ve rota çizgisi OpenStreetMap'ten gelir.",
@@ -690,7 +704,7 @@ private fun TripCard(s: UiState, info: RouteSession.Info, onGoRoute: () -> Unit)
     val tRem = rem / (v / 3.6)
     val arrive = java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr", "TR"))
         .format(java.util.Date(System.currentTimeMillis() + (tRem * 1000).toLong()))
-    val next = if (pos == null) null else info.corridors
+    val next = if (pos == null) null else info.corridors.map { CorridorStore.withOverride(it) }
         .filter { Geo.dist(pos, it.from) > 50 }
         .minByOrNull { Geo.dist(pos, it.from) }
     Column(
