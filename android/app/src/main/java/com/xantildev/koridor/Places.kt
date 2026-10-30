@@ -77,21 +77,33 @@ object Places {
         }
     }
 
-    /** Taze konum: takip açıksa son GPS noktası, değilse telefondan tek seferlik yeni konum (en fazla 15 sn). */
+    /** Konumun ne kadar güncel olduğu (rota ekranında gösterilir). */
+    var lastFixNote: String? = null
+
+    /**
+     * Taze konum: takip açıksa son GPS noktası; değilse GPS ve ağ konumu aynı anda istenir,
+     * ilk gelen kullanılır (en fazla 10 sn). Gelmezse son 24 saatteki kayıtlı konum, uyarıyla.
+     */
     @SuppressLint("MissingPermission")
     suspend fun freshLocation(ctx: Context): LatLng? {
+        lastFixNote = null
         val st = Engine.state.value
         if (st.mode == "gps") st.pos?.let { return it }
         val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            .filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
-        for (prov in providers) {
-            val loc = kotlinx.coroutines.withTimeoutOrNull(if (prov == LocationManager.GPS_PROVIDER) 12000L else 6000L) {
-                kotlinx.coroutines.suspendCancellableCoroutine<android.location.Location?> { cont ->
+        val providers = lm.getProviders(true).filter {
+            it == LocationManager.GPS_PROVIDER || it == LocationManager.NETWORK_PROVIDER || it == "fused"
+        }
+        val loc = kotlinx.coroutines.withTimeoutOrNull(10000L) {
+            kotlinx.coroutines.suspendCancellableCoroutine<android.location.Location?> { cont ->
+                val listeners = ArrayList<android.location.LocationListener>()
+                fun done(l: android.location.Location?) {
+                    listeners.forEach { runCatching { lm.removeUpdates(it) } }
+                    if (cont.isActive) cont.resumeWith(Result.success(l))
+                }
+                for (prov in providers) {
                     val listener = object : android.location.LocationListener {
                         override fun onLocationChanged(l: android.location.Location) {
-                            lm.removeUpdates(this)
-                            if (cont.isActive) cont.resumeWith(Result.success(l))
+                            done(l)
                         }
                         override fun onProviderDisabled(provider: String) {}
                         override fun onProviderEnabled(provider: String) {}
@@ -100,23 +112,25 @@ object Places {
                     }
                     try {
                         lm.requestLocationUpdates(prov, 0L, 0f, listener, android.os.Looper.getMainLooper())
-                    } catch (e: SecurityException) {
-                        if (cont.isActive) cont.resumeWith(Result.success(null))
+                        listeners.add(listener)
+                    } catch (_: Exception) {
                     }
-                    cont.invokeOnCancellation { lm.removeUpdates(listener) }
                 }
+                if (listeners.isEmpty()) done(null)
+                cont.invokeOnCancellation { listeners.forEach { runCatching { lm.removeUpdates(it) } } }
             }
-            if (loc != null) return LatLng(loc.latitude, loc.longitude)
         }
-        // Son çare: 10 dakikadan yeni kayıtlı konum
-        return try {
-            providers.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
-                .filter { System.currentTimeMillis() - it.time < 10 * 60 * 1000 }
+        if (loc != null) return LatLng(loc.latitude, loc.longitude)
+        val last = try {
+            lm.getProviders(false).mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+                .filter { System.currentTimeMillis() - it.time < 24 * 3600 * 1000L }
                 .maxByOrNull { it.time }
-                ?.let { LatLng(it.latitude, it.longitude) }
-        } catch (_: SecurityException) {
+        } catch (_: Exception) {
             null
-        }
+        } ?: return null
+        val mins = ((System.currentTimeMillis() - last.time) / 60000).toInt()
+        if (mins >= 2) lastFixNote = "Yeni konum alınamadı; $mins dk önceki konumun kullanıldı. Yanlışsa GPS ile başlatıp tekrar dene."
+        return LatLng(last.latitude, last.longitude)
     }
 
     fun saveSlot(ctx: Context, slot: String, p: Place) {

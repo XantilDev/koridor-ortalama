@@ -10,6 +10,17 @@ import java.util.Locale
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            try {
+                val sw = java.io.StringWriter()
+                e.printStackTrace(java.io.PrintWriter(sw))
+                getSharedPreferences("hata", Context.MODE_PRIVATE).edit()
+                    .putString("son", sw.toString().take(4000)).commit()
+            } catch (_: Exception) {
+            }
+            prev?.uncaughtException(t, e)
+        }
         CorridorStore.init(this)
         Speaker.init(this)
         Configuration.getInstance().load(this, getSharedPreferences("osmdroid", Context.MODE_PRIVATE))

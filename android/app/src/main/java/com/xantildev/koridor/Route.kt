@@ -142,7 +142,7 @@ object RouteSession {
             val total = road?.second ?: (Geo.dist(here, p.ll) * 1.25)
             val dur = road?.third ?: (total / (80 / 3.6))
             info = Info(p, corridors, line, total, dur, here, startLabel, targetLabel, if (road != null) "yol" else "düz")
-            msg = err
+            msg = listOfNotNull(Places.lastFixNote, err).joinToString("\n").ifBlank { null }
             msgBad = err != null
             busy = false
             if (err == null) {
@@ -204,8 +204,10 @@ object RouteSession {
         Regex("[?&](?:q|ll|query|destination|daddr)=(-?\\d+\\.\\d+)(?:,|%2C)\\s*(-?\\d+\\.\\d+)")
     )
 
+    private val rePlaceAt = Regex("/maps/place/[^/@?]+/@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)")
+
     private fun coordsIn(s: String): LatLng? {
-        for (re in reCoords) {
+        for (re in reCoords + rePlaceAt) {
             val m = re.find(s) ?: continue
             val lat = m.groupValues[1].toDoubleOrNull() ?: continue
             val lon = m.groupValues[2].toDoubleOrNull() ?: continue

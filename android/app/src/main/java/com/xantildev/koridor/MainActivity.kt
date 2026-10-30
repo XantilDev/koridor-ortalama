@@ -144,6 +144,7 @@ private fun Root() {
     val tab = Nav.tab
     val s by Engine.state.collectAsStateWithLifecycle()
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
+    CrashReport()
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         StatusLine(s, ver)
         TabRow(selectedTabIndex = tab, containerColor = Bg, contentColor = Fg) {
@@ -157,6 +158,37 @@ private fun Root() {
             else -> ListTab(ver)
         }
     }
+}
+
+/** Önceki çalıştırmada çökme olduysa hatayı gösterir; kopyalayıp gönderilebilir. */
+@Composable
+private fun CrashReport() {
+    val ctx = LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("hata", Context.MODE_PRIVATE) }
+    var text by remember { mutableStateOf(prefs.getString("son", null)) }
+    val t = text ?: return
+    fun close() {
+        prefs.edit().remove("son").apply()
+        text = null
+    }
+    AlertDialog(
+        onDismissRequest = { close() },
+        title = { Text("Uygulama son açılışta kapandı") },
+        text = {
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("“Kopyala”ya basıp bu metni sohbete yapıştırırsan sebebini bulup düzeltirim.", color = Fg, fontSize = 14.sp)
+                Text(t.take(1500), color = Muted, fontSize = 11.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("Koridor hata", t))
+                close()
+            }) { Text("Kopyala") }
+        },
+        dismissButton = { TextButton(onClick = { close() }) { Text("Kapat") } }
+    )
 }
 
 @Composable

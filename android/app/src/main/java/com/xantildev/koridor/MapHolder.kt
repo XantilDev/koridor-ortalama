@@ -88,12 +88,7 @@ class MapHolder(ctx: Context) {
                 endMark.snippet = ri.targetLabel
                 map.overlays.add(startMark)
                 map.overlays.add(endMark)
-                map.post {
-                    try {
-                        map.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(pts), true, 80)
-                    } catch (_: Exception) {
-                    }
-                }
+                fitWhenReady(org.osmdroid.util.BoundingBox.fromGeoPoints(pts), 0)
             }
         }
         if (s.track.size != lastTrackSize) {
@@ -117,6 +112,18 @@ class MapHolder(ctx: Context) {
             hasFix = false
         }
         map.invalidate()
+    }
+
+    /** Harita ölçüsü belli olmadan yakınlaştırma yapılırsa osmdroid çöker; boyut gelene kadar bekle. */
+    private fun fitWhenReady(box: org.osmdroid.util.BoundingBox, tries: Int) {
+        if (map.width > 0 && map.height > 0) {
+            try {
+                map.zoomToBoundingBox(box, false, 80)
+            } catch (_: Exception) {
+            }
+        } else if (tries < 20) {
+            map.postDelayed({ fitWhenReady(box, tries + 1) }, 150)
+        }
     }
 
     fun recenter(s: UiState) {
