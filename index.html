@@ -137,6 +137,12 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
 .ritem .t{min-width:0}
 .ritem .t strong{display:block;font-size:14.5px;overflow-wrap:anywhere}
 .ritem .t span{font-size:12.5px;color:var(--muted)}
+.avg.trip{color:var(--fg)}
+.sign small{display:block;font:600 10px var(--body);color:#555;letter-spacing:.04em;margin-top:-4px}
+.mapwrap{position:relative}
+#dmap{height:260px;border-radius:14px;border:1px solid var(--line)}
+.recenter{position:absolute;right:10px;bottom:22px;z-index:1000;background:var(--accent);color:#1a1405;border:0;border-radius:99px;padding:9px 14px;font:700 13.5px var(--body);cursor:pointer}
+.youdot{width:18px;height:18px;border-radius:50%;background:var(--accent);border:3px solid #fff;box-shadow:0 0 0 6px rgba(242,182,50,.25)}
 @media (prefers-reduced-motion:reduce){.bar i{transition:none}}
 </style>
 
@@ -167,7 +173,7 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
       <div class="big">
         <div>
           <div class="avg idle" id="avg">—</div>
-          <div class="avg-lbl">Koridor ortalaman · km/s</div>
+          <div class="avg-lbl" id="avgLbl">Koridor ortalaman · km/s</div>
         </div>
         <div class="sign none" id="sign" role="button" tabindex="0" aria-label="Hız limiti — değiştirmek için dokun">—</div>
       </div>
@@ -178,10 +184,10 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
       </div>
       <div class="bar" aria-hidden="true"><i id="prog"></i></div>
       <div class="grid">
-        <div class="cell"><span>Kalan</span><b id="remain">— km</b></div>
-        <div class="cell"><span>Geçen süre</span><b id="elapsed">0:00</b></div>
-        <div class="cell"><span>Zaman payı</span><b id="slack">—</b></div>
-        <div class="cell"><span>Kalan için ort. üst sınır</span><b id="maxv">—</b></div>
+        <div class="cell"><span id="l1">Kalan</span><b id="remain">— km</b></div>
+        <div class="cell"><span id="l2">Geçen süre</span><b id="elapsed">0:00</b></div>
+        <div class="cell"><span id="l3">Zaman payı</span><b id="slack">—</b></div>
+        <div class="cell"><span id="l4">Kalan için ort. üst sınır</span><b id="maxv">—</b></div>
       </div>
       <div class="whatif" id="whatif" hidden>
         <div class="wi-h"><span>Kalan yolu bu hızla gidersem</span><b id="wiV">— km/s</b></div>
@@ -190,6 +196,11 @@ code{font-size:12.5px;background:var(--bg);padding:1px 5px;border-radius:5px;bor
         <div class="wi-out" id="wiOut"></div>
       </div>
       <div class="note" id="note" hidden></div>
+    </div>
+
+    <div class="mapwrap">
+      <div id="dmap" aria-label="Canlı harita"></div>
+      <button class="recenter" id="recenter" hidden>Konumuma dön</button>
     </div>
 
     <div class="controls">
@@ -310,6 +321,7 @@ function merge(){
   out.forEach(applyOv); applyOv(DEMO);
   corridors = out;
   renderList(); renderStatus();
+  if (typeof drawCorridorMarks === 'function') drawCorridorMarks();
 }
 
 function renderStatus(){
@@ -435,7 +447,10 @@ function onFix(f){   // f: {lat, lon, t(ms), speed(m/s|null), acc}
     const d = dist(prev, f), dt = (f.t - prev.t)/1000;
     if (v == null && dt > 0) v = d/dt;
     if (run) run.step(d, dt, v);
+    tripStep(d, dt, v);
   }
+  updateMap(f);
+  roadLimit(f);
   $('spdTxt').textContent = 'Anlık ' + (v == null ? '—' : Math.round(v*3.6)) + ' km/s';
   prev = f;
   if (!run){
@@ -445,6 +460,76 @@ function onFix(f){   // f: {lat, lon, t(ms), speed(m/s|null), acc}
     if (c) startRun(c, f);
   } else run.check(f);
   render();
+}
+
+/* ---------- Yolculuk istatistiği ---------- */
+let trip = null;
+function newTrip(){ trip = { dist:0, time:0, move:0, stop:0 }; }
+function tripStep(d, dt, v){
+  if (!trip || !(dt > 0) || dt > 30) return;
+  trip.dist += d; trip.time += dt;
+  if ((v || 0) * 3.6 < 4) trip.stop += dt; else trip.move += dt;
+}
+
+/* ---------- Canlı harita ---------- */
+let dmap = null, you = null, trail = null, trailPts = [], cLayer = null, follow = true;
+function initDmap(){
+  if (dmap || typeof window.L === 'undefined') return;
+  dmap = window.L.map($('dmap'), { zoomControl:true, attributionControl:true }).setView([39.0, 35.0], 6);
+  window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap' }).addTo(dmap);
+  const acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  trail = window.L.polyline([], { color:acc, weight:5, opacity:.85 }).addTo(dmap);
+  cLayer = window.L.layerGroup().addTo(dmap);
+  dmap.on('dragstart', () => { follow = false; $('recenter').hidden = false; });
+  drawCorridorMarks();
+}
+function drawCorridorMarks(){
+  if (!cLayer) return;
+  cLayer.clearLayers();
+  const red = getComputedStyle(document.documentElement).getPropertyValue('--sign').trim();
+  corridors.concat(mode === 'sim' ? [DEMO] : []).forEach(c => {
+    window.L.circleMarker([c.from.lat, c.from.lon], { radius:7, color:red, weight:3, fillColor:'#fff', fillOpacity:1 })
+      .bindTooltip('Koridor başı · ' + (c.limit || '?') + ' km/s', { direction:'top', offset:[0,-8] }).addTo(cLayer);
+    window.L.circleMarker([c.to.lat, c.to.lon], { radius:5, color:'#8c9a97', weight:2, fillColor:'#151c1f', fillOpacity:1 })
+      .bindTooltip('Koridor sonu', { direction:'top', offset:[0,-6] }).addTo(cLayer);
+  });
+}
+function updateMap(f){
+  initDmap(); if (!dmap) return;
+  const ll = [f.lat, f.lon];
+  if (!you){
+    you = window.L.marker(ll, { icon: window.L.divIcon({ className:'', html:'<div class="youdot"></div>', iconSize:[18,18], iconAnchor:[9,9] }), interactive:false }).addTo(dmap);
+    dmap.setView(ll, 15);
+  } else you.setLatLng(ll);
+  trailPts.push(ll); if (trailPts.length > 3000) trailPts.shift();
+  trail.setLatLngs(trailPts);
+  if (follow) dmap.panTo(ll, { animate:false });
+}
+function resetMap(){
+  trailPts = []; if (trail) trail.setLatLngs([]);
+  if (you){ you.remove(); you = null; }
+  follow = true; $('recenter').hidden = true;
+  drawCorridorMarks();
+}
+$('recenter').addEventListener('click', () => { follow = true; $('recenter').hidden = true; if (prev && dmap) dmap.setView([prev.lat, prev.lon], Math.max(dmap.getZoom(), 15)); });
+
+/* ---------- Bulunduğun yolun limiti (OSM) ---------- */
+let roadLim = null, rlAt = null, rlBusy = false, rlT = 0;
+async function roadLimit(f){
+  if (mode !== 'gps' || rlBusy) return;
+  const now = Date.now();
+  if (now - rlT < 15000) return;
+  if (rlAt && dist(rlAt, f) < 250 && now - rlT < 90000) return;
+  rlBusy = true; rlT = now; rlAt = { lat:f.lat, lon:f.lon };
+  try{
+    const q = '[out:json][timeout:10];way(around:25,' + f.lat.toFixed(6) + ',' + f.lon.toFixed(6) + ')[highway][maxspeed];out tags 3;';
+    const r = await fetch('https://overpass-api.de/api/interpreter', { method:'POST', body:'data=' + encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'} });
+    if (r.ok){
+      const j = await r.json(); const w = j.elements && j.elements[0];
+      roadLim = w ? (parseInt(w.tags.maxspeed, 10) || null) : null;
+    }
+  } catch(e){}
+  rlBusy = false;
 }
 
 /* Koridora yaklaşma uyarısı */
@@ -517,12 +602,20 @@ function showNote(el, txt, cls){ el.hidden = false; el.className = 'note ' + (cl
 function render(){
   const avgEl = $('avg'), sign = $('sign'), note = $('note');
   if (!run || !run.confirmed){
-    $('cName').firstChild.textContent = run ? 'Girişte, yön doğrulanıyor…' : 'Koridor dışındasınız';
-    $('cSub').textContent = run ? run.c.name : (mode === 'idle' ? 'Başlatınca bir koridorun girişine yaklaştığında ölçüm kendiliğinden başlar.' : 'Koridor girişi bekleniyor.');
-    avgEl.textContent = '—'; avgEl.className = 'avg idle';
-    sign.className = 'sign none'; sign.textContent = '—';
-    $('prog').style.width = '0'; $('remain').textContent = '— km'; $('elapsed').textContent = '0:00';
-    $('slack').textContent = '—'; $('slack').className = ''; $('maxv').textContent = '—';
+    $('cName').firstChild.textContent = run ? 'Girişte, yön doğrulanıyor…' : trip ? 'Serbest sürüş' : 'Koridor dışındasınız';
+    $('cSub').textContent = run ? run.c.name : (mode === 'idle' ? (trip ? 'Takip durdu. Son yolculuğun özeti.' : 'Başlatınca yolculuk ortalaman hesaplanır; koridora girince koridor ölçümüne geçer.') : 'Koridor yok · yolculuk ortalaman gösteriliyor');
+    const ta = trip && trip.time > 10 ? trip.dist / trip.time * 3.6 : null;
+    avgEl.textContent = ta == null ? '—' : Math.round(ta);
+    avgEl.className = 'avg ' + (ta == null ? 'idle' : 'trip');
+    $('avgLbl').textContent = 'Yolculuk ortalaman · km/s';
+    if (roadLim && mode === 'gps'){ sign.className = 'sign'; sign.textContent = roadLim; const sm = document.createElement('small'); sm.textContent = 'YOL'; sign.append(sm); }
+    else { sign.className = 'sign none'; sign.textContent = '—'; }
+    $('prog').style.width = '0';
+    $('l1').textContent = 'Mesafe'; $('l2').textContent = 'Süre'; $('l3').textContent = 'Hareket ortalaması'; $('l4').textContent = 'Durma süresi';
+    $('remain').textContent = trip ? fmtKm(trip.dist) : '— km';
+    $('elapsed').textContent = trip ? fmtT(trip.time) : '0:00';
+    $('slack').textContent = trip && trip.move > 10 ? Math.round(trip.dist / trip.move * 3.6) + ' km/s' : '—'; $('slack').className = '';
+    $('maxv').textContent = trip ? fmtT(trip.stop) : '—';
     $('whatif').hidden = true; $('limEdit').hidden = true;
     if (lastResult){
       const ok = lastResult.limit ? lastResult.avg <= lastResult.limit : null;
@@ -531,6 +624,8 @@ function render(){
     return;
   }
   const c = run.c, avg = run.avg, el = run.elapsed, rem = Math.max(0, c.length - run.traveled);
+  $('avgLbl').textContent = 'Koridor ortalaman · km/s';
+  $('l1').textContent = 'Kalan'; $('l2').textContent = 'Geçen süre'; $('l3').textContent = 'Zaman payı'; $('l4').textContent = 'Kalan için ort. üst sınır';
   $('cName').firstChild.textContent = c.name;
   $('cSub').textContent = fmtKm(c.length) + ' koridor' + (c.sources.length > 1 ? ' · iki kaynakta doğrulandı' : '');
   avgEl.textContent = avg == null ? '…' : Math.round(avg);
@@ -762,6 +857,7 @@ function startGps(){
   stopAll();
   if (!('geolocation' in navigator)){ setGps('err','Bu tarayıcıda konum yok'); return; }
   mode = 'gps'; setGps('', 'Konum bekleniyor…');
+  newTrip(); roadLim = null; rlAt = null; rlT = 0; resetMap();
   say('Takip başladı.');
   watchId = navigator.geolocation.watchPosition(p => {
     setGps('on', 'GPS ±' + Math.round(p.coords.accuracy) + ' m');
@@ -778,6 +874,7 @@ let simTimer = null;
 function startSim(){
   stopAll();
   mode = 'sim'; setGps('sim', 'Örnek sürüş (×10 hız)'); lastResult = null;
+  newTrip(); roadLim = null; resetMap();
   const c = DEMO, L = c.length, pre = 400;
   // hız profili: hızlan → limit üstü seyir → 75 sn mola → normal
   const prof = x => x < 0 ? 70 : x < 0.35 * L ? 104 : x < 0.55 * L ? 98 : 84;
@@ -810,6 +907,7 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
   document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
   ['drive','route','list','src'].forEach(p => $('p-' + p).hidden = p !== b.dataset.tab);
   if (b.dataset.tab === 'route' && map) setTimeout(() => map.invalidateSize(), 50);
+  if (b.dataset.tab === 'drive' && dmap) setTimeout(() => dmap.invalidateSize(), 50);
 }));
 $('bGps').onclick = startGps;
 $('bSim').onclick = startSim;
@@ -826,6 +924,7 @@ $('bImport').onclick = () => {
 $('bClear').onclick = () => { bList = []; store.set('eds_b', []); $('bText').value = ''; merge(); };
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && mode !== 'idle') keepAwake(); });
 
+initDmap();
 merge(); render();
 if (!osmMeta || Date.now() - osmMeta.t > 3 * 864e5) loadOsm(true);
 window.__eds = { dist, parseB, parseOsm };
