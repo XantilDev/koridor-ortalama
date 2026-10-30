@@ -131,12 +131,12 @@ private fun Root() {
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         StatusLine(s, ver)
         TabRow(selectedTabIndex = tab, containerColor = Bg, contentColor = Fg) {
-            listOf("Sürüş", "Rota", "Koridorlar").forEachIndexed { i, t ->
+            listOf("Sürüş", "Nereye?", "Koridorlar").forEachIndexed { i, t ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t, fontWeight = FontWeight.SemiBold) })
             }
         }
         when (tab) {
-            0 -> DriveTab(s, ver)
+            0 -> DriveTab(s, ver) { tab = 1 }
             1 -> RouteTab()
             else -> ListTab(ver)
         }
@@ -164,7 +164,7 @@ private fun StatusLine(s: UiState, ver: Int) {
 // ---------------- SÜRÜŞ ----------------
 
 @Composable
-private fun DriveTab(s: UiState, ver: Int) {
+private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
     val ctx = LocalContext.current
     var limitFor by remember { mutableStateOf<Corridor?>(null) }
     var voice by remember { mutableStateOf(Engine.voiceOn) }
@@ -179,6 +179,9 @@ private fun DriveTab(s: UiState, ver: Int) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        OutlinedButton(onClick = onGoRoute, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+            Text("Nereye gidiyorsun?  Adres, firma ya da yer ara", color = Fg)
+        }
         Hud(s) { limitFor = it }
         if (s.confirmed && s.corridor?.limit != null) WhatIf(s)
         Box(Modifier.fillMaxWidth().height(260.dp).clip(Card).border(1.dp, Line, Card)) { LiveMap(s, ver) }
@@ -509,6 +512,137 @@ private fun <T> Picker(
 @Composable
 private fun RouteTab() {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var q by rememberSaveable { mutableStateOf("") }
+    var places by remember { mutableStateOf<List<Places.Place>>(emptyList()) }
+    var home by remember { mutableStateOf(Places.loadSlot(ctx, "ev")) }
+    var work by remember { mutableStateOf(Places.loadSlot(ctx, "is")) }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var msgBad by remember { mutableStateOf(false) }
+    var target by remember { mutableStateOf<Places.Place?>(null) }
+    var result by remember { mutableStateOf<List<Corridor>?>(null) }
+    var manual by remember { mutableStateOf(false) }
+
+    fun go(p: Places.Place) {
+        val here = Places.currentLocation(ctx)
+        if (here == null) {
+            msg = "Şu anki konumun bilinmiyor. Sürüş ekranında “GPS ile başlat”a bas, konum gelince tekrar dene."
+            msgBad = true
+            return
+        }
+        busy = true
+        target = p
+        result = null
+        msg = "Rota hesaplanıyor: ${p.name}…"
+        msgBad = false
+        places = emptyList()
+        scope.launch {
+            try {
+                val a = DistrictFinder.nearest(here, null)
+                val b = DistrictFinder.nearest(p.ll, p.province)
+                val list = TrafikApi.route(a, b)
+                CorridorStore.addRoute(list)
+                result = list
+                msg = null
+                Engine.say(
+                    if (list.isEmpty()) "Bu rotada ortalama hız koridoru bulunamadı."
+                    else "Rotanızda ${list.size} ortalama hız koridoru var."
+                )
+            } catch (e: Exception) {
+                msg = "Rota alınamadı: ${e.message ?: "bağlantı hatası"}."
+                msgBad = true
+            }
+            busy = false
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("Nereye gidiyorsun?", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Fg)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SlotButton("Ev", home, Modifier.weight(1f), enabled = !busy) { home?.let { go(it) } ?: run { msg = "Ev kayıtlı değil. Adresini arayıp sonuçta “Ev yap”a dokun."; msgBad = true } }
+            SlotButton("İş", work, Modifier.weight(1f), enabled = !busy) { work?.let { go(it) } ?: run { msg = "İş kayıtlı değil. Adresini arayıp sonuçta “İş yap”a dokun."; msgBad = true } }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = q, onValueChange = { q = it },
+                label = { Text("Firma, adres ya da yer") }, singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            Button(
+                onClick = {
+                    val text = q.trim()
+                    if (text.isNotEmpty()) {
+                        busy = true
+                        msg = "Aranıyor…"
+                        msgBad = false
+                        scope.launch {
+                            try {
+                                places = Places.search(text, Places.currentLocation(ctx))
+                                msg = if (places.isEmpty()) "Sonuç bulunamadı. Firma adıyla bulunmazsa adresini ya da semtini yaz (ör. “Organize Sanayi, Kırıkkale”)." else null
+                                msgBad = places.isEmpty()
+                            } catch (e: Exception) {
+                                msg = "Arama yapılamadı: ${e.message ?: "bağlantı hatası"}."
+                                msgBad = true
+                            }
+                            busy = false
+                        }
+                    }
+                },
+                enabled = !busy, modifier = Modifier.height(56.dp)
+            ) { Text("Ara") }
+        }
+        msg?.let { NoteBox(it, if (msgBad) Over else Line) }
+        places.forEach { p ->
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel)
+                    .border(1.dp, Line, RoundedCornerShape(12.dp)).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(p.name, color = Fg, fontWeight = FontWeight.SemiBold)
+                if (p.detail.isNotBlank()) Text(p.detail, color = Muted, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = { go(p) }, enabled = !busy, modifier = Modifier.weight(1.4f)) { Text("Git") }
+                    OutlinedButton(onClick = { Places.saveSlot(ctx, "ev", p); home = p; msg = "Ev kaydedildi: ${p.name}"; msgBad = false }, modifier = Modifier.weight(1f)) { Text("Ev yap", color = Fg) }
+                    OutlinedButton(onClick = { Places.saveSlot(ctx, "is", p); work = p; msg = "İş kaydedildi: ${p.name}"; msgBad = false }, modifier = Modifier.weight(1f)) { Text("İş yap", color = Fg) }
+                }
+            }
+        }
+        result?.let { list ->
+            val total = list.sumOf { it.lengthM }
+            Text(
+                (target?.let { "${it.name} rotası · " } ?: "") +
+                    if (list.isEmpty()) "kayıtlı ortalama hız koridoru yok." else "${list.size} koridor, toplam ${Geo.fmtKm(total)}",
+                color = Fg, fontWeight = FontWeight.SemiBold
+            )
+            if (list.isNotEmpty()) Text("Hepsi kaydedildi; sürüşte otomatik tanınır ve yaklaşırken sesli uyarı verilir.", color = Muted, fontSize = 13.sp)
+            list.forEach { CorridorRow(it) }
+        }
+        Text(
+            "Koridorlar ve limitleri EGM Trafik Başkanlığı'nın sitesinden (trafik.gov.tr), adres araması OpenStreetMap'ten gelir.",
+            color = Muted, fontSize = 12.sp
+        )
+        TextButton(onClick = { manual = !manual }) { Text(if (manual) "İl/ilçe ile seçimi gizle" else "Bulamazsan: il/ilçe ile seç", color = Accent) }
+        if (manual) ManualRoute()
+    }
+}
+
+@Composable
+private fun SlotButton(label: String, p: Places.Place?, modifier: Modifier, enabled: Boolean, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, enabled = enabled, modifier = modifier.height(60.dp)) {
+        Column(Modifier.fillMaxWidth()) {
+            Text(label, color = Fg, fontWeight = FontWeight.Bold)
+            Text(p?.name ?: "Kayıtlı değil", color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun ManualRoute() {
+    val ctx = LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("rota", Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
     var cities by remember { mutableStateOf<List<TrafikApi.City>>(emptyList()) }
@@ -533,19 +667,11 @@ private fun RouteTab() {
                 fromD = fromDs.find { it.id == fd }
             }
         } catch (e: Exception) {
-            msg = "trafik.gov.tr'ye ulaşılamadı (${e.message ?: "bağlantı hatası"}). İnternet bağlantını kontrol et."
+            msg = "trafik.gov.tr'ye ulaşılamadı (${e.message ?: "bağlantı hatası"})."
         }
     }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Text("Nereye gidiyoruz?", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Fg)
-        Text(
-            "Rotadaki ortalama hız koridorları limitleriyle birlikte EGM Trafik Başkanlığı'nın sitesinden (trafik.gov.tr) alınır ve telefonda saklanır. Sürüşte otomatik tanınır.",
-            color = Muted, fontSize = 13.sp
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("NEREDEN", color = Muted, fontSize = 12.sp, letterSpacing = 1.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Picker("İl", cities, fromCity, { it.name }, Modifier.weight(1f), enabled = cities.isNotEmpty()) { c ->
@@ -576,12 +702,8 @@ private fun RouteTab() {
                             CorridorStore.addRoute(list)
                             result = list
                             if (fc != null) prefs.edit().putInt("fromCity", fc.id).putInt("fromDistrict", a.id).apply()
-                            Engine.say(
-                                if (list.isEmpty()) "Bu rotada ortalama hız koridoru bulunamadı."
-                                else "Rotanızda ${list.size} ortalama hız koridoru var."
-                            )
                         } catch (e: Exception) {
-                            msg = "Rota alınamadı: ${e.message ?: "bağlantı hatası"}. Biraz sonra tekrar dene."
+                            msg = "Rota alınamadı: ${e.message ?: "bağlantı hatası"}."
                         }
                         busy = false
                     }
@@ -592,12 +714,7 @@ private fun RouteTab() {
         ) { Text(if (busy) "Getiriliyor…" else "Rotadaki koridorları getir", fontWeight = FontWeight.Bold) }
         msg?.let { NoteBox(it, Over) }
         result?.let { list ->
-            val total = list.sumOf { it.lengthM }
-            Text(
-                if (list.isEmpty()) "Bu rotada kayıtlı ortalama hız koridoru yok."
-                else "${list.size} koridor · toplam ${Geo.fmtKm(total)}",
-                color = Fg, fontWeight = FontWeight.SemiBold
-            )
+            Text(if (list.isEmpty()) "Bu rotada kayıtlı koridor yok." else "${list.size} koridor", color = Fg, fontWeight = FontWeight.SemiBold)
             list.forEach { CorridorRow(it) }
         }
     }

@@ -73,7 +73,11 @@ object TrafikApi {
         )
         val o = JSONObject(http(BASE + "CreateRoute", form))
         if (!o.optBoolean("success")) {
-            throw IOException(o.optString("message").ifBlank { "Servis hata verdi" })
+            val m = o.optString("message")
+            throw IOException(
+                if (m.contains("Servis çağrılırken")) "trafik.gov.tr rota servisi şu an yanıt vermiyor; sitenin kendisi de aynı hatayı veriyor"
+                else m.ifBlank { "Servis hata verdi" }
+            )
         }
         val data = o.optJSONObject("data") ?: return@withContext emptyList()
         val arr = data.optJSONArray("SpeedTunnels") ?: JSONArray()
