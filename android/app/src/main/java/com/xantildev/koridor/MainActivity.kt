@@ -616,7 +616,8 @@ private fun RouteTab() {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("Hedef: ${info.target.name}", color = Fg, fontWeight = FontWeight.Bold)
-                Text("Başlangıç: şu anki konumun", color = Muted, fontSize = 12.sp)
+                Text("Başlangıç: ${info.startLabel} (yeşil nokta) · Hedef: ${info.targetLabel} (mavi nokta)", color = Muted, fontSize = 12.sp)
+                if (info.lineSource == "düz") Text("Yol çizgisi alınamadı; haritadaki mavi çizgi düz bağlantıdır.", color = Muted, fontSize = 12.sp)
                 Text(
                     "${Geo.fmtKm(info.totalM)} · yaklaşık ${durText(info.durationS)} · " +
                         if (info.corridors.isEmpty()) "kayıtlı koridor yok" else "${info.corridors.size} koridor, toplam ${Geo.fmtKm(info.corridors.sumOf { it.lengthM })}",

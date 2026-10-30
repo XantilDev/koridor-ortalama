@@ -77,6 +77,48 @@ object Places {
         }
     }
 
+    /** Taze konum: takip açıksa son GPS noktası, değilse telefondan tek seferlik yeni konum (en fazla 15 sn). */
+    @SuppressLint("MissingPermission")
+    suspend fun freshLocation(ctx: Context): LatLng? {
+        val st = Engine.state.value
+        if (st.mode == "gps") st.pos?.let { return it }
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            .filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+        for (prov in providers) {
+            val loc = kotlinx.coroutines.withTimeoutOrNull(if (prov == LocationManager.GPS_PROVIDER) 12000L else 6000L) {
+                kotlinx.coroutines.suspendCancellableCoroutine<android.location.Location?> { cont ->
+                    val listener = object : android.location.LocationListener {
+                        override fun onLocationChanged(l: android.location.Location) {
+                            lm.removeUpdates(this)
+                            if (cont.isActive) cont.resumeWith(Result.success(l))
+                        }
+                        override fun onProviderDisabled(provider: String) {}
+                        override fun onProviderEnabled(provider: String) {}
+                        @Deprecated("Deprecated in Java")
+                        override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+                    }
+                    try {
+                        lm.requestLocationUpdates(prov, 0L, 0f, listener, android.os.Looper.getMainLooper())
+                    } catch (e: SecurityException) {
+                        if (cont.isActive) cont.resumeWith(Result.success(null))
+                    }
+                    cont.invokeOnCancellation { lm.removeUpdates(listener) }
+                }
+            }
+            if (loc != null) return LatLng(loc.latitude, loc.longitude)
+        }
+        // Son çare: 10 dakikadan yeni kayıtlı konum
+        return try {
+            providers.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+                .filter { System.currentTimeMillis() - it.time < 10 * 60 * 1000 }
+                .maxByOrNull { it.time }
+                ?.let { LatLng(it.latitude, it.longitude) }
+        } catch (_: SecurityException) {
+            null
+        }
+    }
+
     fun saveSlot(ctx: Context, slot: String, p: Place) {
         val o = JSONObject().put("n", p.name).put("d", p.detail).put("a", p.lat).put("b", p.lon).put("p", p.province ?: "")
         ctx.getSharedPreferences("rota", Context.MODE_PRIVATE).edit().putString(slot, o.toString()).apply()
@@ -111,6 +153,6 @@ object DistrictFinder {
         val ds = districts[city.id] ?: TrafikApi.districts(city.id).also { districts[city.id] = it }
         val d = ds.minByOrNull { Geo.dist(p, LatLng(it.lat, it.lon)) } ?: throw IOException("İlçe bulunamadı")
         // Rota tam noktadan hesaplansın diye ilçe merkezi yerine gerçek koordinat kullanılır.
-        return d.copy(lat = p.lat, lon = p.lon)
+        return d.copy(name = "${d.name}, ${city.name}", lat = p.lat, lon = p.lon)
     }
 }

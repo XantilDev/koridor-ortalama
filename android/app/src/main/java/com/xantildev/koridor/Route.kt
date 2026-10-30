@@ -30,7 +30,11 @@ object RouteSession {
         val corridors: List<Corridor>,
         val line: List<LatLng>,
         val totalM: Double,
-        val durationS: Double
+        val durationS: Double,
+        val start: LatLng,
+        val startLabel: String,
+        val targetLabel: String,
+        val lineSource: String
     ) {
         private val cum: DoubleArray = DoubleArray(line.size).also { c ->
             for (i in 1 until line.size) c[i] = c[i - 1] + Geo.dist(line[i - 1], line[i])
@@ -99,17 +103,20 @@ object RouteSession {
     }
 
     fun go(ctx: Context, p: Places.Place) {
-        val here = Places.currentLocation(ctx)
-        if (here == null) {
-            msg = "Şu anki konumun bilinmiyor. Sürüş ekranında “GPS ile başlat”a bas, konum gelince tekrar dene."
-            msgBad = true
-            return
-        }
+        if (busy) return
         busy = true
         results = emptyList()
-        msg = "Rota hesaplanıyor: ${p.name}…"
+        msg = "Konumun alınıyor…"
         msgBad = false
         scope.launch {
+            val here = Places.freshLocation(ctx)
+            if (here == null) {
+                msg = "Şu anki konumun alınamadı. Telefonun konumu açık mı? Sürüş ekranında “GPS ile başlat”a basıp konum gelince tekrar dene."
+                msgBad = true
+                busy = false
+                return@launch
+            }
+            msg = "Rota hesaplanıyor: ${p.name}…"
             // Yol çizgisi ve mesafe (varış tahmini için)
             val road = try {
                 osrm(here, p.ll)
@@ -119,9 +126,13 @@ object RouteSession {
             // Koridorlar (trafik.gov.tr)
             var corridors: List<Corridor> = emptyList()
             var err: String? = null
+            var startLabel = "konumun"
+            var targetLabel = p.name
             try {
                 val a = DistrictFinder.nearest(here, null)
                 val b = DistrictFinder.nearest(p.ll, p.province)
+                startLabel = a.name
+                targetLabel = b.name
                 corridors = TrafikApi.route(a, b)
                 CorridorStore.addRoute(corridors)
             } catch (e: Exception) {
@@ -130,7 +141,7 @@ object RouteSession {
             val line = road?.first ?: listOf(here, p.ll)
             val total = road?.second ?: (Geo.dist(here, p.ll) * 1.25)
             val dur = road?.third ?: (total / (80 / 3.6))
-            info = Info(p, corridors, line, total, dur)
+            info = Info(p, corridors, line, total, dur, here, startLabel, targetLabel, if (road != null) "yol" else "düz")
             msg = err
             msgBad = err != null
             busy = false
@@ -186,11 +197,11 @@ object RouteSession {
         }
     }
 
+    // Yalnızca yerin kendi işareti kabul edilir; harita görünümünün merkezi (@...) yanıltıcı olabilir:
+    // Google çözemediği linklerde haritayı kullanıcının bölgesine (ör. Ankara) açar.
     private val reCoords = listOf(
         Regex("!3d(-?\\d+\\.\\d+)!4d(-?\\d+\\.\\d+)"),
-        Regex("@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)"),
-        Regex("[?&](?:q|ll|query|destination)=(-?\\d+\\.\\d+)(?:,|%2C)\\s*(-?\\d+\\.\\d+)"),
-        Regex("center=(-?\\d+\\.\\d+)(?:,|%2C)(-?\\d+\\.\\d+)")
+        Regex("[?&](?:q|ll|query|destination|daddr)=(-?\\d+\\.\\d+)(?:,|%2C)\\s*(-?\\d+\\.\\d+)")
     )
 
     private fun coordsIn(s: String): LatLng? {
@@ -268,7 +279,7 @@ object RouteSession {
                 }
             }
         }
-        (coordsIn(finalUrl) ?: coordsIn(body) ?: appState(body))?.let { return@withContext place(it) }
+        (coordsIn(finalUrl) ?: coordsIn(body))?.let { return@withContext place(it) }
 
         // Firma kimliği (cid/ftid) varsa haritalar sayfasını açıp merkezi oku
         val cid = Regex("[?&]cid=(\\d+)").find(finalUrl)?.groupValues?.get(1)
@@ -280,7 +291,7 @@ object RouteSession {
         }
         if (alt != null) {
             val (u2, b2) = follow(alt)
-            (coordsIn(u2) ?: coordsIn(b2) ?: appState(b2))?.let { return@withContext place(it) }
+            (coordsIn(u2) ?: coordsIn(b2))?.let { return@withContext place(it) }
         }
 
         // Son çare: linkteki arama metni ya da isimle adres araması

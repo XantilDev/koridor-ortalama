@@ -23,6 +23,8 @@ class MapHolder(ctx: Context) {
     private val trail = Polyline(map)
     private val routeLine = Polyline(map)
     private var drawnRoute: RouteSession.Info? = null
+    private val startMark = Marker(map)
+    private val endMark = Marker(map)
     private val you = Marker(map)
     private val corr = FolderOverlay()
     private var drawnKey = -1
@@ -69,7 +71,30 @@ class MapHolder(ctx: Context) {
         val ri = RouteSession.info
         if (ri !== drawnRoute) {
             drawnRoute = ri
-            routeLine.setPoints(ri?.line?.map { GeoPoint(it.lat, it.lon) } ?: emptyList())
+            val pts = ri?.line?.map { GeoPoint(it.lat, it.lon) } ?: emptyList()
+            routeLine.setPoints(pts)
+            map.overlays.remove(startMark)
+            map.overlays.remove(endMark)
+            if (ri != null && pts.size >= 2) {
+                startMark.position = GeoPoint(ri.start.lat, ri.start.lon)
+                startMark.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                startMark.icon = dot(0xFF2FBF71.toInt(), Color.WHITE, 40)
+                startMark.title = "Başlangıç"
+                startMark.snippet = ri.startLabel
+                endMark.position = GeoPoint(ri.target.lat, ri.target.lon)
+                endMark.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                endMark.icon = dot(0xFF4DA3FF.toInt(), Color.WHITE, 44)
+                endMark.title = "Hedef: " + ri.target.name
+                endMark.snippet = ri.targetLabel
+                map.overlays.add(startMark)
+                map.overlays.add(endMark)
+                map.post {
+                    try {
+                        map.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(pts), true, 80)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
         }
         if (s.track.size != lastTrackSize) {
             lastTrackSize = s.track.size
