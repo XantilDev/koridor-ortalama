@@ -643,7 +643,7 @@ private fun RouteTab() {
     var savedAs by remember { mutableStateOf<String?>(null) }   // "ev" / "is" / isim: hangi düğme onaylı görünsün
     fun saved(what: String, text: String) {
         savedAs = what
-        rs.msg = text; rs.msgBad = false
+        RouteSession.msg = text; RouteSession.msgBad = false
         android.widget.Toast.makeText(ctx, "✓ $text", android.widget.Toast.LENGTH_SHORT).show()
         Engine.say(text)
     }
