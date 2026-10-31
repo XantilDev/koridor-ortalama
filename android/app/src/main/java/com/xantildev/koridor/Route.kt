@@ -21,6 +21,8 @@ import kotlin.math.hypot
 /** Açık sekme: başka ekrandan (ör. Google Haritalar paylaşımı) yönlendirmek için. */
 object Nav {
     var tab by mutableIntStateOf(0)
+    /** Sürüş sekmesinde büyük (tam ekran) görünüm. */
+    var big by mutableStateOf(true)
 }
 
 /** Seçili hedef ve rota bilgisi. Uygulama açık olduğu sürece sekmeler arasında korunur. */
@@ -34,8 +36,12 @@ object RouteSession {
         val start: LatLng,
         val startLabel: String,
         val targetLabel: String,
-        val lineSource: String
+        val lineSource: String,
+        val corridorsMissing: Boolean = false
     ) {
+        fun withCorridors(list: List<Corridor>, a: String, b: String) =
+            Info(target, list, line, totalM, durationS, start, a, b, lineSource, false)
+
         private val cum: DoubleArray = DoubleArray(line.size).also { c ->
             for (i in 1 until line.size) c[i] = c[i - 1] + Geo.dist(line[i - 1], line[i])
         }
@@ -76,10 +82,57 @@ object RouteSession {
     var query by mutableStateOf("")
     var results by mutableStateOf<List<Places.Place>>(emptyList())
 
+    private var retryJob: kotlinx.coroutines.Job? = null
+    var retryText by mutableStateOf<String?>(null)
+
     fun clear() {
+        retryJob?.cancel()
+        retryText = null
         info = null
         msg = null
     }
+
+    /** trafik.gov.tr'den rotadaki koridorlar (yalnız rota çizgisinin üstündekiler). */
+    private suspend fun fetchCorridors(here: LatLng, p: Places.Place, line: List<LatLng>?): Triple<List<Corridor>, String, String> {
+        val a = DistrictFinder.nearest(here, null)
+        val b = DistrictFinder.nearest(p.ll, p.province)
+        val all = TrafikApi.route(a, b)
+        val list = if (line != null) all.filter {
+            Geo.distToLine(it.from, line) < 400 && Geo.distToLine(it.to, line) < 400
+        } else all
+        CorridorStore.addRoute(list)
+        return Triple(list, a.name, b.name)
+    }
+
+    /** Koridorlar alınamadıysa vazgeçme: 30 sn'den başlayıp aralığı açarak (en çok 5 dk) tekrar dene. */
+    private fun retryCorridors(p: Places.Place, line: List<LatLng>?) {
+        retryJob?.cancel()
+        retryJob = scope.launch {
+            var wait = 30
+            var n = 0
+            while (true) {
+                retryText = "Koridor bilgisi alınamadı; $wait sn sonra tekrar denenecek."
+                kotlinx.coroutines.delay(wait * 1000L)
+                val cur = info ?: break
+                if (cur.target != p) break
+                n++
+                retryText = "Koridor bilgisi tekrar isteniyor ($n. deneme)…"
+                try {
+                    val here = Places.currentLocation(ctxApp ?: break) ?: cur.start
+                    val (list, a, b) = fetchCorridors(here, p, line)
+                    if (info?.target == p) info = info?.withCorridors(list, a, b)
+                    retryText = null
+                    if (msgBad) { msg = null; msgBad = false }
+                    Engine.say(if (list.isEmpty()) "Koridor bilgisi geldi. Rotada kayıtlı koridor yok." else "Koridor bilgisi geldi. Rotada ${list.size} ortalama hız koridoru var.")
+                    break
+                } catch (_: Exception) {
+                    wait = minOf(300, if (n < 4) 30 else if (n < 8) 60 else 120 * (n / 8))
+                }
+            }
+        }
+    }
+
+    private var ctxApp: Context? = null
 
     fun search(ctx: Context) {
         val text = query.trim()
@@ -104,6 +157,11 @@ object RouteSession {
 
     fun go(ctx: Context, p: Places.Place) {
         if (busy) return
+        ctxApp = ctx.applicationContext
+        // Yeni hedef: eski sürüş kaydedilip bitirilir, yenisi sıfırdan başlar (hedef değişmeden önce, eski hedefle kaydedilsin)
+        if (Engine.tracking && info?.target != p) Engine.newTrip()
+        retryJob?.cancel()
+        retryText = null
         busy = true
         results = emptyList()
         msg = "Konumun alınıyor…"
@@ -129,23 +187,24 @@ object RouteSession {
             var startLabel = "konumun"
             var targetLabel = p.name
             try {
-                val a = DistrictFinder.nearest(here, null)
-                val b = DistrictFinder.nearest(p.ll, p.province)
-                startLabel = a.name
-                targetLabel = b.name
-                val all = TrafikApi.route(a, b)
-                // Yalnızca gerçekten rotanın üstündekiler (giriş ve çıkışı çizgiye 400 m'den yakın)
-                corridors = if (road != null) all.filter {
-                    Geo.distToLine(it.from, road.first) < 400 && Geo.distToLine(it.to, road.first) < 400
-                } else all
-                CorridorStore.addRoute(corridors)
+                val (list, a, b) = fetchCorridors(here, p, road?.first)
+                corridors = list
+                startLabel = a
+                targetLabel = b
             } catch (e: Exception) {
-                err = "Koridorlar alınamadı: ${e.message ?: "bağlantı hatası"}. Varış tahmini yine çalışır."
+                // Rotada daha önce kaydedilmiş koridorlar varsa onlar hemen kullanılır
+                val line0 = road?.first
+                if (line0 != null) corridors = CorridorStore.all().filter {
+                    Geo.distToLine(it.from, line0) < 400 && Geo.distToLine(it.to, line0) < 400
+                }
+                err = "Koridor bilgisi şu an alınamadı (${e.message ?: "bağlantı hatası"}). Sürüş boyunca arada tekrar denenecek" +
+                    (if (corridors.isNotEmpty()) "; telefonda kayıtlı ${corridors.size} koridor kullanılıyor." else ".")
             }
             val line = road?.first ?: listOf(here, p.ll)
             val total = road?.second ?: (Geo.dist(here, p.ll) * 1.25)
             val dur = road?.third ?: (total / (80 / 3.6))
-            info = Info(p, corridors, line, total, dur, here, startLabel, targetLabel, if (road != null) "yol" else "düz")
+            info = Info(p, corridors, line, total, dur, here, startLabel, targetLabel, if (road != null) "yol" else "düz", err != null)
+            if (err != null) retryCorridors(p, road?.first)
             msg = listOfNotNull(Places.lastFixNote, err).joinToString("\n").ifBlank { null }
             msgBad = err != null
             busy = false

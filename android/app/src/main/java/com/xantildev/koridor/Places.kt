@@ -138,6 +138,31 @@ object Places {
         ctx.getSharedPreferences("rota", Context.MODE_PRIVATE).edit().putString(slot, o.toString()).apply()
     }
 
+    /** Kullanıcının isim verip kaydettiği yerler (ör. "Çevrükler Makine"). */
+    fun savedList(ctx: Context): List<Place> = try {
+        val a = org.json.JSONArray(ctx.getSharedPreferences("rota", Context.MODE_PRIVATE).getString("yerler", "[]"))
+        (0 until a.length()).map { i ->
+            val o = a.getJSONObject(i)
+            Place(o.getString("n"), o.optString("d"), o.getDouble("a"), o.getDouble("b"), o.optString("p").ifBlank { null })
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun savePlace(ctx: Context, name: String, p: Place) {
+        val list = savedList(ctx).filter { !it.name.equals(name.trim(), ignoreCase = true) } + p.copy(name = name.trim())
+        val a = org.json.JSONArray()
+        list.forEach { x -> a.put(JSONObject().put("n", x.name).put("d", x.detail).put("a", x.lat).put("b", x.lon).put("p", x.province ?: "")) }
+        ctx.getSharedPreferences("rota", Context.MODE_PRIVATE).edit().putString("yerler", a.toString()).apply()
+    }
+
+    fun removePlace(ctx: Context, name: String) {
+        val list = savedList(ctx).filter { it.name != name }
+        val a = org.json.JSONArray()
+        list.forEach { x -> a.put(JSONObject().put("n", x.name).put("d", x.detail).put("a", x.lat).put("b", x.lon).put("p", x.province ?: "")) }
+        ctx.getSharedPreferences("rota", Context.MODE_PRIVATE).edit().putString("yerler", a.toString()).apply()
+    }
+
     fun loadSlot(ctx: Context, slot: String): Place? = try {
         val s = ctx.getSharedPreferences("rota", Context.MODE_PRIVATE).getString(slot, null)
         if (s == null) null else {

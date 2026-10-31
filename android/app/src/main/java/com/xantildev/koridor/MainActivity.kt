@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -147,6 +148,10 @@ private fun Root(firstOpen: Boolean) {
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
     CrashReport()
     StartupPrompts(firstOpen, s)
+    if (tab == 0 && Nav.big && s.mode != "idle") {
+        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) { BigDrive(s) { Nav.big = false } }
+        return
+    }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         StatusLine(s, ver)
         TabRow(selectedTabIndex = tab, containerColor = Bg, contentColor = Fg) {
@@ -236,6 +241,12 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
                 Text("Nereye gidiyorsun?  Adres, firma ya da yer seç", color = Fg)
             }
         }
+        val voice = rememberVoice()
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = voice, modifier = Modifier.weight(1f).height(52.dp)) { Text("🎤 Konuş", color = Fg, fontSize = 17.sp) }
+            if (s.mode != "idle") OutlinedButton(onClick = { Nav.big = true }, modifier = Modifier.weight(1f).height(52.dp)) { Text("Büyük ekran", color = Fg, fontSize = 17.sp) }
+        }
+        RouteSession.retryText?.let { NoteBox(it, Warn) }
         Hud(s) { limitFor = it }
         if (route != null) TripCard(s, route, onGoRoute)
         if (s.confirmed && s.corridor != null) WhatIf(s) { limitFor = it }
@@ -609,7 +620,33 @@ private fun RouteTab() {
     val ctx = LocalContext.current
     var home by remember { mutableStateOf(Places.loadSlot(ctx, "ev")) }
     var work by remember { mutableStateOf(Places.loadSlot(ctx, "is")) }
+    var saved by remember { mutableStateOf(Places.savedList(ctx)) }
+    var nameFor by remember { mutableStateOf<Places.Place?>(null) }
     var manual by remember { mutableStateOf(false) }
+    val voice = rememberVoice()
+    nameFor?.let { p ->
+        var name by remember(p) { mutableStateOf(p.name) }
+        AlertDialog(
+            onDismissRequest = { nameFor = null },
+            title = { Text("Bu konumu kaydet") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Bir isim ver. Sonra “Konuş”a basıp bu ismi söylediğinde rota hemen oluşur.", fontSize = 14.sp)
+                    OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("İsim (ör. Çevrükler Makine)") })
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (name.isNotBlank()) {
+                        Places.savePlace(ctx, name, p); saved = Places.savedList(ctx)
+                        RouteSession.msg = "Kaydedildi: ${name.trim()}"; RouteSession.msgBad = false
+                    }
+                    nameFor = null
+                }) { Text("Kaydet", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { nameFor = null }) { Text("Vazgeç") } }
+        )
+    }
     var limitFor by remember { mutableStateOf<Corridor?>(null) }
     limitFor?.let { c ->
         LimitDialog(c, onDismiss = { limitFor = null }) { v ->
@@ -632,6 +669,26 @@ private fun RouteTab() {
             SlotButton("İş", work, Modifier.weight(1f), enabled = !rs.busy) {
                 work?.let { rs.go(ctx, it) } ?: run { rs.msg = "İş kayıtlı değil. Adresini arayıp sonuçta “İş yap”a dokun."; rs.msgBad = true }
             }
+        }
+        if (saved.isNotEmpty()) {
+            Text("Kayıtlı yerler", color = Muted, fontSize = 13.sp)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                saved.forEach { p ->
+                    var confirmDel by remember(p.name) { mutableStateOf(false) }
+                    Row(
+                        Modifier.clip(RoundedCornerShape(12.dp)).background(Panel).border(1.dp, Line, RoundedCornerShape(12.dp)),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { rs.go(ctx, p) }, enabled = !rs.busy) { Text(p.name, color = Fg, fontWeight = FontWeight.SemiBold) }
+                        TextButton(onClick = {
+                            if (confirmDel) { Places.removePlace(ctx, p.name); saved = Places.savedList(ctx) } else confirmDel = true
+                        }) { Text(if (confirmDel) "Sil?" else "×", color = Muted) }
+                    }
+                }
+            }
+        }
+        OutlinedButton(onClick = voice, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+            Text("🎤 Konuş: “ev”, “iş”, kayıtlı yer ya da il adı", color = Fg)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
@@ -659,6 +716,7 @@ private fun RouteTab() {
                     OutlinedButton(onClick = { Places.saveSlot(ctx, "ev", p); home = p; rs.msg = "Ev kaydedildi: ${p.name}"; rs.msgBad = false }, modifier = Modifier.weight(1f)) { Text("Ev yap", color = Fg) }
                     OutlinedButton(onClick = { Places.saveSlot(ctx, "is", p); work = p; rs.msg = "İş kaydedildi: ${p.name}"; rs.msgBad = false }, modifier = Modifier.weight(1f)) { Text("İş yap", color = Fg) }
                 }
+                TextButton(onClick = { nameFor = p }) { Text("İsimle kaydet", color = Accent) }
             }
         }
         if (info != null) {
@@ -674,11 +732,28 @@ private fun RouteTab() {
                         if (info.corridors.isEmpty()) "kayıtlı koridor yok" else "${info.corridors.size} koridor, toplam ${Geo.fmtKm(info.corridors.sumOf { it.lengthM })}",
                     color = Muted, fontSize = 13.sp
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { Nav.tab = 0 }, modifier = Modifier.weight(1f)) { Text("Sürüşe dön") }
-                    OutlinedButton(onClick = { RouteSession.openInMaps(ctx, info.target) }, modifier = Modifier.weight(1f)) { Text("Yol tarifi (Haritalar)", color = Fg) }
+                rs.retryText?.let { Text(it, color = Warn, fontSize = 13.sp) }
+                val st by Engine.state.collectAsStateWithLifecycle()
+                Button(
+                    onClick = {
+                        if (st.mode == "idle") {
+                            if (hasLocation(ctx)) TrackingService.start(ctx)
+                        }
+                        Nav.big = true
+                        Nav.tab = 0
+                    },
+                    modifier = Modifier.fillMaxWidth().height(64.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Ok, contentColor = Color(0xFF06140C))
+                ) { Text(if (st.mode == "idle") "Yeni sürüşe başla" else "Sürüş ekranına geç", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(onClick = { Places.saveSlot(ctx, "ev", info.target); home = info.target; rs.msg = "Ev kaydedildi: ${info.target.name}"; rs.msgBad = false }, modifier = Modifier.weight(1f)) { Text("Ev olarak kaydet", color = Fg, fontSize = 13.sp) }
+                    OutlinedButton(onClick = { Places.saveSlot(ctx, "is", info.target); work = info.target; rs.msg = "İş kaydedildi: ${info.target.name}"; rs.msgBad = false }, modifier = Modifier.weight(1f)) { Text("İş olarak kaydet", color = Fg, fontSize = 13.sp) }
                 }
-                TextButton(onClick = { rs.clear() }) { Text("Hedefi kaldır", color = Over) }
+                OutlinedButton(onClick = { nameFor = info.target }, modifier = Modifier.fillMaxWidth()) { Text("Bu konumu isimle kaydet", color = Fg) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { RouteSession.openInMaps(ctx, info.target) }, modifier = Modifier.weight(1f)) { Text("Yol tarifi (Haritalar)", color = Fg, fontSize = 13.sp) }
+                    TextButton(onClick = { rs.clear() }, modifier = Modifier.weight(1f)) { Text("Hedefi kaldır", color = Over) }
+                }
                 if (info.corridors.isNotEmpty()) {
                     Text("Hepsi kaydedildi; sürüşte otomatik tanınır, yaklaşırken sesli uyarı verilir.", color = Muted, fontSize = 13.sp)
                 }
@@ -835,7 +910,8 @@ private fun ManualRoute() {
 
 @Composable
 private fun ListTab(ver: Int) {
-    val list = remember(ver) { CorridorStore.all() }
+    val here = remember(ver) { Engine.state.value.pos }
+    val list = remember(ver) { CorridorStore.all().let { l -> if (here != null) l.sortedBy { Geo.dist(here, it.from) } else l } }
     var dlg by remember { mutableStateOf<Corridor?>(null) }
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -849,8 +925,10 @@ private fun ListTab(ver: Int) {
                     "trafik.gov.tr ${CorridorStore.routeCount} · EGM ${CorridorStore.egmCount} · senin ${CorridorStore.userCount}. Limiti değiştirmek için koridora dokun.",
                     color = Muted, fontSize = 13.sp
                 )
+                Text(CorridorCrawler.status, color = Accent, fontSize = 13.sp)
                 Text(
-                    "Rota seçtiğinde gelen koridorlar sonraki sürüşlerde de tanınmak için saklanır. Eski rotalardan kalanları silmek için:",
+                    "Bulunan bütün koridorlar telefonda saklanır; internet ya da servis olmasa da sürüşte tanınır." +
+                        (if (here != null) " Liste sana en yakından başlar." else "") + " Hepsini silmek için:",
                     color = Muted, fontSize = 12.sp
                 )
                 OutlinedButton(onClick = { CorridorStore.clearRoute() }) {

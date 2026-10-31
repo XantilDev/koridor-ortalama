@@ -24,6 +24,7 @@ class App : Application() {
         VehicleStore.init(this)
         TripStore.init(this)
         CorridorStore.init(this)
+        CorridorCrawler.init(this)
         Speaker.init(this)
         Configuration.getInstance().load(this, getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
         Configuration.getInstance().userAgentValue = packageName

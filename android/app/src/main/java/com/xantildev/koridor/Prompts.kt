@@ -47,7 +47,6 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
     var ask by rememberSaveable { mutableStateOf<String?>(null) }
     var asked by rememberSaveable { mutableStateOf(false) }
     var pendingResume by rememberSaveable { mutableStateOf<String?>(null) }
-    var auto by remember { mutableStateOf(prefs.getBoolean("oto_baslat", false)) }
 
     fun begin(resumeId: String?) {
         TrackingService.start(ctx, resumeId)
@@ -79,7 +78,9 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
             TrackingService.running -> ask = "suruyor"
             Engine.tracking -> {}
             half != null -> ask = "yarim"
-            auto && hasLocation(ctx) -> begin(null)
+            // Konum izni yoksa izni iste; izin varsa ve konum açıksa sormadan başla; kapalıysa sor
+            !hasLocation(ctx) -> startWithPermission(null)
+            locationOn(ctx) -> begin(null)
             else -> ask = "konum"
         }
         if (half == null && !TrackingService.running) TripStore.setActive(null)
@@ -119,20 +120,12 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
         "konum" -> AlertDialog(
             onDismissRequest = { ask = null },
             title = { Text("Konumu açalım mı?") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Hız koridorlarını ve ortalamanı görmek için konum gerekiyor. Açınca sürüş takibi kendiliğinden başlar; bitirmek için ekrandaki ya da bildirimdeki “Sürüşü bitir”e basarsın.")
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = auto, onCheckedChange = { auto = it })
-                        Text("Bir dahaki açılışta sormadan başlat", fontSize = 14.sp)
-                    }
-                }
-            },
+            text = { Text("Telefonun konumu kapalı. Koridorları ve ortalamanı görmek için konumu açman gerekiyor; açınca sürüş takibi kendiliğinden başlar.") },
             confirmButton = {
                 TextButton(onClick = {
-                    prefs.edit().putBoolean("oto_baslat", auto).apply()
                     ask = null
-                    startWithPermission(null)
+                    TrackingService.start(ctx)
+                    ctx.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }) { Text("Konumu aç", fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { ask = null }) { Text("Şimdi değil") } }
