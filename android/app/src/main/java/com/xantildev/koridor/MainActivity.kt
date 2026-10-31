@@ -640,6 +640,13 @@ private fun RouteTab() {
     var nameFor by remember { mutableStateOf<Places.Place?>(null) }
     var manual by remember { mutableStateOf(false) }
     val voice = rememberVoice()
+    var savedAs by remember { mutableStateOf<String?>(null) }   // "ev" / "is" / isim: hangi düğme onaylı görünsün
+    fun saved(what: String, text: String) {
+        savedAs = what
+        rs.msg = text; rs.msgBad = false
+        android.widget.Toast.makeText(ctx, "✓ $text", android.widget.Toast.LENGTH_SHORT).show()
+        Engine.say(text)
+    }
     nameFor?.let { p ->
         var name by remember(p) { mutableStateOf(p.name) }
         AlertDialog(
@@ -655,7 +662,7 @@ private fun RouteTab() {
                 TextButton(onClick = {
                     if (name.isNotBlank()) {
                         Places.savePlace(ctx, name, p); saved = Places.savedList(ctx)
-                        RouteSession.msg = "Kaydedildi: ${name.trim()}"; RouteSession.msgBad = false
+                        saved("ad:" + p.name, "${name.trim()} kaydedildi")
                     }
                     nameFor = null
                 }) { Text("Kaydet", fontWeight = FontWeight.Bold) }
@@ -729,8 +736,10 @@ private fun RouteTab() {
                 if (p.detail.isNotBlank()) Text(p.detail, color = Muted, fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = { rs.go(ctx, p) }, enabled = !rs.busy, modifier = Modifier.weight(1.4f)) { Text("Git") }
-                    OutlinedButton(onClick = { Places.saveSlot(ctx, "ev", p); home = p; rs.msg = "Ev kaydedildi: ${p.name}"; rs.msgBad = false }, modifier = Modifier.weight(1f)) { Text("Ev yap", color = Fg) }
-                    OutlinedButton(onClick = { Places.saveSlot(ctx, "is", p); work = p; rs.msg = "İş kaydedildi: ${p.name}"; rs.msgBad = false }, modifier = Modifier.weight(1f)) { Text("İş yap", color = Fg) }
+                    OutlinedButton(onClick = { Places.saveSlot(ctx, "ev", p); home = p; saved("ev:" + p.name, "Ev adresi kaydedildi") }, modifier = Modifier.weight(1f)) {
+                        Text(if (savedAs == "ev:" + p.name) "✓ Ev" else "Ev yap", color = if (savedAs == "ev:" + p.name) Ok else Fg) }
+                    OutlinedButton(onClick = { Places.saveSlot(ctx, "is", p); work = p; saved("is:" + p.name, "İş adresi kaydedildi") }, modifier = Modifier.weight(1f)) {
+                        Text(if (savedAs == "is:" + p.name) "✓ İş" else "İş yap", color = if (savedAs == "is:" + p.name) Ok else Fg) }
                 }
                 TextButton(onClick = { nameFor = p }) { Text("İsimle kaydet", color = Accent) }
             }
@@ -762,10 +771,24 @@ private fun RouteTab() {
                     colors = ButtonDefaults.buttonColors(containerColor = Ok, contentColor = Color(0xFF06140C))
                 ) { Text(if (st.mode == "idle") "Yeni sürüşe başla" else "Sürüş ekranına geç", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(onClick = { Places.saveSlot(ctx, "ev", info.target); home = info.target; rs.msg = "Ev kaydedildi: ${info.target.name}"; rs.msgBad = false }, modifier = Modifier.weight(1f)) { Text("Ev olarak kaydet", color = Fg, fontSize = 13.sp) }
-                    OutlinedButton(onClick = { Places.saveSlot(ctx, "is", info.target); work = info.target; rs.msg = "İş kaydedildi: ${info.target.name}"; rs.msgBad = false }, modifier = Modifier.weight(1f)) { Text("İş olarak kaydet", color = Fg, fontSize = 13.sp) }
+                    val evOk = savedAs == "ev:" + info.target.name
+                    val isOk = savedAs == "is:" + info.target.name
+                    OutlinedButton(
+                        onClick = { Places.saveSlot(ctx, "ev", info.target); home = info.target; saved("ev:" + info.target.name, "Ev adresi kaydedildi") },
+                        modifier = Modifier.weight(1f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (evOk) Ok else Line)
+                    ) { Text(if (evOk) "✓ Ev kaydedildi" else "Ev olarak kaydet", color = if (evOk) Ok else Fg, fontSize = 13.sp, fontWeight = if (evOk) FontWeight.Bold else null) }
+                    OutlinedButton(
+                        onClick = { Places.saveSlot(ctx, "is", info.target); work = info.target; saved("is:" + info.target.name, "İş adresi kaydedildi") },
+                        modifier = Modifier.weight(1f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isOk) Ok else Line)
+                    ) { Text(if (isOk) "✓ İş kaydedildi" else "İş olarak kaydet", color = if (isOk) Ok else Fg, fontSize = 13.sp, fontWeight = if (isOk) FontWeight.Bold else null) }
                 }
-                OutlinedButton(onClick = { nameFor = info.target }, modifier = Modifier.fillMaxWidth()) { Text("Bu konumu isimle kaydet", color = Fg) }
+                val adOk = savedAs == "ad:" + info.target.name
+                OutlinedButton(
+                    onClick = { nameFor = info.target }, modifier = Modifier.fillMaxWidth(),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (adOk) Ok else Line)
+                ) { Text(if (adOk) "✓ Kayıtlı yerlere eklendi" else "Bu konumu isimle kaydet", color = if (adOk) Ok else Fg) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { RouteSession.openInMaps(ctx, info.target) }, modifier = Modifier.weight(1f)) { Text("Yol tarifi (Haritalar)", color = Fg, fontSize = 13.sp) }
                     TextButton(onClick = { rs.clear() }, modifier = Modifier.weight(1f)) { Text("Hedefi kaldır", color = Over) }
