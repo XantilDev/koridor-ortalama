@@ -241,9 +241,9 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
                 Text("Nereye gidiyorsun?  Adres, firma ya da yer seç", color = Fg)
             }
         }
-        val voice = rememberVoice()
+        val talk = rememberVoice()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = voice, modifier = Modifier.weight(1f).height(52.dp)) { Text("🎤 Konuş", color = Fg, fontSize = 17.sp) }
+            OutlinedButton(onClick = talk, modifier = Modifier.weight(1f).height(52.dp)) { Text("🎤 Konuş", color = Fg, fontSize = 17.sp) }
             if (s.mode != "idle") OutlinedButton(onClick = { Nav.big = true }, modifier = Modifier.weight(1f).height(52.dp)) { Text("Büyük ekran", color = Fg, fontSize = 17.sp) }
         }
         RouteSession.retryText?.let { NoteBox(it, Warn) }
