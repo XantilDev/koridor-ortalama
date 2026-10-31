@@ -511,14 +511,26 @@ private fun WhatIf(s: UiState, onSetLimit: (Corridor) -> Unit) {
 }
 
 @Composable
-private fun LiveMap(s: UiState, ver: Int) {
+internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false) {
     val ctx = LocalContext.current
     val holder = remember { MapHolder(ctx) }
     var follow by remember { mutableStateOf(true) }
     holder.onUserPan = { follow = false }
     Box(Modifier.fillMaxSize()) {
         AndroidView(factory = { holder.map }, modifier = Modifier.fillMaxSize(), update = { holder.update(s, ver, follow) })
-        if (!follow) {
+        if (controls) {
+            Column(Modifier.align(Alignment.TopEnd).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("+" to { holder.map.controller.zoomIn(); Unit }, "−" to { holder.map.controller.zoomOut(); Unit }, "◎" to { follow = true; holder.recenter(s) })
+                    .forEach { (t, f) ->
+                        Box(
+                            Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xE60D1214))
+                                .border(1.dp, Line, RoundedCornerShape(14.dp)).clickable { f() },
+                            contentAlignment = Alignment.Center
+                        ) { Text(t, color = Fg, fontSize = 26.sp, fontWeight = FontWeight.Bold) }
+                    }
+            }
+        }
+        if (!follow && !controls) {
             Button(
                 onClick = { follow = true; holder.recenter(s) },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp)
