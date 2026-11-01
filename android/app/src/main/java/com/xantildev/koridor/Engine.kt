@@ -47,7 +47,10 @@ data class UiState(
     val markText: String = "Listede olmayanı kendin ekle",
     val arrived: String? = null,
     val tick: Long = 0
-)
+) {
+    /** Yolculuk kaydı sürüyor mu ("bekle" = hazır: konum açık, kayıt yok). */
+    val driving: Boolean get() = mode == "gps" || mode == "sim"
+}
 
 /**
  * Ölçüm motoru: web sürümündeki mantığın aynısı.
@@ -132,7 +135,13 @@ object Engine {
         simJob?.cancel()
         simJob = null
         mode = m
-        gpsText = if (m == "sim") "Örnek sürüş (×10 hız)" else "Konum bekleniyor…"
+        gpsText = when (m) {
+            "sim" -> "Örnek sürüş (×10 hız)"
+            "bekle" -> "Hazır · konum bekleniyor…"
+            else -> "Konum bekleniyor…"
+        }
+        movingSince = null
+        lastMoveWall = System.currentTimeMillis()
         prev = null
         run = null
         trip = Trip()
@@ -231,9 +240,60 @@ object Engine {
         }
     }
 
+    private var movingSince: Long? = null
+    private var lastMoveWall = 0L
+    /** Hazır durumda uzun süre hareket olmazsa takibi kapatmak için (servis bağlar). */
+    var onStandbyTimeout: (() -> Unit)? = null
+
+    /** Hazır durum: konum ve hız gösterilir, kayıt yapılmaz; 15 km/s'yi 5 sn geçince sürüş başlar. */
+    private fun standbyFix(f: Fix) {
+        val p = prev
+        val v = f.speed ?: if (p != null && f.t > p.t) Geo.dist(p.ll, f.ll) / ((f.t - p.t) / 1000.0) else null
+        speedKmh = v?.let { (it * 3.6).roundToInt() }
+        prev = f
+        lastFixWall = System.currentTimeMillis()
+        val kmh = speedKmh ?: 0
+        if (kmh >= 5) lastMoveWall = System.currentTimeMillis()
+        if (kmh >= 15) {
+            val since = movingSince ?: f.t.also { movingSince = it }
+            if (f.t - since >= 5000) {
+                beginTrip()
+                return
+            }
+        } else {
+            movingSince = null
+        }
+        gpsText = "Hazır · hareket edince sürüş başlar"
+        if (System.currentTimeMillis() - lastMoveWall > 20 * 60_000L) {
+            onStandbyTimeout?.invoke()
+            return
+        }
+        publish()
+    }
+
+    /** Hazır durumdan sürüşe geç (hedef seçilince, "Başlat"a basınca ya da araç hareket edince). */
+    fun beginTrip() {
+        if (mode != "bekle") return
+        startTracking("gps")
+        say("Sürüş başladı.")
+    }
+
+    /** Sürüşü bitir: kaydet, konumu kapatmadan hazır duruma dön. */
+    fun endTrip() {
+        when (mode) {
+            "gps" -> {
+                saveTrip()
+                startTracking("bekle")
+                say("Sürüş bitti ve kaydedildi.")
+            }
+            "sim" -> stop()
+        }
+    }
+
     /** Yeni hedef seçildi: süren yolculuk kaydedilip bitirilir, aynı anda sıfırdan yenisi başlar. */
     fun newTrip() {
         if (mode == "idle") return
+        if (mode == "bekle") { beginTrip(); return }
         if (mode == "sim") { stop(); return }
         val m = mode
         saveTrip()
@@ -280,6 +340,10 @@ object Engine {
         if (acc != null && acc > 60f) {
             gpsText = "GPS zayıf ±${acc.roundToInt()} m"
             publish()
+            return
+        }
+        if (mode == "bekle") {
+            standbyFix(f)
             return
         }
         if (mode == "gps") gpsText = "GPS ±${(acc ?: 0f).roundToInt()} m"

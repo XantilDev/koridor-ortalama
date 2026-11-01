@@ -152,7 +152,8 @@ private fun Root(firstOpen: Boolean) {
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
     CrashReport()
     StartupPrompts(firstOpen, s)
-    if (tab == 0 && Nav.big && s.mode != "idle") {
+    val wide = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    if (tab == 0 && Nav.big && (s.driving || wide)) {
         Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) { BigDrive(s) { Nav.big = false } }
         return
     }
@@ -208,8 +209,8 @@ private fun StatusLine(s: UiState, ver: Int) {
     val count = remember(ver) { CorridorStore.all().size }
     val dot = when {
         s.mode == "sim" -> Accent
-        s.mode == "gps" && s.pos != null -> Ok
-        s.mode == "gps" -> Muted
+        (s.mode == "gps" || s.mode == "bekle") && s.pos != null -> Ok
+        s.mode == "gps" || s.mode == "bekle" -> Muted
         else -> Line
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -248,7 +249,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         val talk = rememberVoice()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = talk, modifier = Modifier.weight(1f).height(52.dp)) { Text("🎤 Konuş", color = Fg, fontSize = 17.sp) }
-            if (s.mode != "idle") OutlinedButton(onClick = { Nav.big = true }, modifier = Modifier.weight(1f).height(52.dp)) { Text("Büyük ekran", color = Fg, fontSize = 17.sp) }
+            if (s.driving) OutlinedButton(onClick = { Nav.big = true }, modifier = Modifier.weight(1f).height(52.dp)) { Text("Büyük ekran", color = Fg, fontSize = 17.sp) }
         }
         RouteSession.retryText?.let { NoteBox(it, Warn) }
         Hud(s) { limitFor = it }
@@ -256,7 +257,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         if (s.confirmed && s.corridor != null) WhatIf(s) { limitFor = it }
         Box(Modifier.fillMaxWidth().height(260.dp).clip(Card).border(1.dp, Line, Card)) { LiveMap(s, ver) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (s.mode == "idle") {
+            if (!s.driving) {
                 Button(
                     onClick = {
                         if (hasLocation(ctx)) {
@@ -271,7 +272,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
                 }
             } else {
                 Button(
-                    onClick = { if (s.mode == "gps") TrackingService.stop(ctx) else Engine.stop() },
+                    onClick = { TrackingService.end(ctx) },
                     modifier = Modifier.weight(1f).height(52.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Line, contentColor = Fg)
                 ) { Text("Sürüşü bitir", fontWeight = FontWeight.Bold) }
@@ -302,7 +303,7 @@ private fun Hud(s: UiState, onSign: (Corridor) -> Unit) {
     val title = when {
         inC -> c?.name ?: ""
         c != null -> "Girişte, yön doğrulanıyor…"
-        s.mode != "idle" -> "Serbest sürüş"
+        s.driving -> "Serbest sürüş"
         s.trip.time > 0 -> "Son yolculuk"
         else -> "Koridor dışındasınız"
     }
@@ -310,7 +311,7 @@ private fun Hud(s: UiState, onSign: (Corridor) -> Unit) {
         inC && c != null -> Geo.fmtKm(c.lengthM) + " koridor · " + c.sourceLabel +
             if (VehicleStore.type.commercial) " · ${VehicleStore.type.label} limiti" else ""
         c != null -> c.name
-        s.mode != "idle" -> "Koridor yok · yolculuk ortalaman gösteriliyor"
+        s.driving -> "Koridor yok · yolculuk ortalaman gösteriliyor"
         else -> "Başlatınca yolculuk ortalaman hesaplanır; koridora girince koridor ölçümüne geçer."
     }
     val lim = if (inC) c?.limit else null
@@ -559,7 +560,7 @@ private fun MarkBox(s: UiState) {
             color = Muted, fontSize = 13.sp
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { Engine.markStart() }, enabled = s.mode != "idle", modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = { Engine.markStart() }, enabled = s.driving, modifier = Modifier.weight(1f)) {
                 Text("Başı burası", color = Fg)
             }
             OutlinedButton(onClick = { Engine.markEnd() }, enabled = s.markActive, modifier = Modifier.weight(1f)) {
@@ -761,15 +762,13 @@ private fun RouteTab() {
                 val st by Engine.state.collectAsStateWithLifecycle()
                 Button(
                     onClick = {
-                        if (st.mode == "idle") {
-                            if (hasLocation(ctx)) TrackingService.start(ctx)
-                        }
+                        if (!st.driving && hasLocation(ctx)) TrackingService.start(ctx)
                         Nav.big = true
                         Nav.tab = 0
                     },
                     modifier = Modifier.fillMaxWidth().height(64.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Ok, contentColor = Color(0xFF06140C))
-                ) { Text(if (st.mode == "idle") "Yeni sürüşe başla" else "Sürüş ekranına geç", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+                ) { Text(if (!st.driving) "Yeni sürüşe başla" else "Sürüş ekranına geç", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     val evOk = savedAs == "ev:" + info.target.name
                     val isOk = savedAs == "is:" + info.target.name
@@ -819,7 +818,7 @@ private fun durText(sec: Double): String {
 
 @Composable
 private fun TripCard(s: UiState, info: RouteSession.Info, onGoRoute: () -> Unit) {
-    val pos = if (s.mode == "gps") s.pos else null
+    val pos = if (s.mode == "gps" || s.mode == "bekle") s.pos else null
     val rem = if (pos != null) info.remainingFrom(pos) else info.totalM
     val v = s.moveAvg?.takeIf { it > 20 } ?: (info.totalM / info.durationS * 3.6)
     val tRem = rem / (v / 3.6)

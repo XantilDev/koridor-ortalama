@@ -160,6 +160,7 @@ object RouteSession {
         ctxApp = ctx.applicationContext
         // Yeni hedef: eski sürüş kaydedilip bitirilir, yenisi sıfırdan başlar (hedef değişmeden önce, eski hedefle kaydedilsin)
         if (Engine.tracking && info?.target != p) Engine.newTrip()
+        else if (!Engine.tracking && hasLocation(ctx)) TrackingService.start(ctx)   // hedef seçilince sürüş başlar
         retryJob?.cancel()
         retryText = null
         busy = true

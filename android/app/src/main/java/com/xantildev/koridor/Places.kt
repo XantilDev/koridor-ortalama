@@ -65,7 +65,7 @@ object Places {
     @SuppressLint("MissingPermission")
     fun currentLocation(ctx: Context): LatLng? {
         val st = Engine.state.value
-        if (st.mode == "gps") st.pos?.let { return it }
+        if (st.mode == "gps" || st.mode == "bekle") st.pos?.let { return it }
         val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return try {
             listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
@@ -88,7 +88,7 @@ object Places {
     suspend fun freshLocation(ctx: Context): LatLng? {
         lastFixNote = null
         val st = Engine.state.value
-        if (st.mode == "gps") st.pos?.let { return it }
+        if (st.mode == "gps" || st.mode == "bekle") st.pos?.let { return it }
         val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val providers = lm.getProviders(true).filter {
             it == LocationManager.GPS_PROVIDER || it == LocationManager.NETWORK_PROVIDER || it == "fused"

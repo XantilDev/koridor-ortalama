@@ -147,6 +147,7 @@ class Gauge : SurfaceCallback {
 
         // Başlık
         val label = when {
+            s.mode == "bekle" -> "HAZIR · hareket edince sürüş başlar"
             s.mode == "idle" -> "TAKİP KAPALI · “Başlat”a dokun"
             inC -> "KORİDOR ORTALAMAN · KM/S"
             corridor != null -> "KORİDOR GİRİŞİ · yön doğrulanıyor"
@@ -211,7 +212,7 @@ class MainCarScreen(ctx: CarContext) : Screen(ctx) {
     override fun onGetTemplate(): Template {
         val s = Engine.state.value
         val strip = ActionStrip.Builder()
-        if (s.mode == "idle") {
+        if (!s.driving) {
             strip.addAction(
                 Action.Builder().setTitle("Başlat").setBackgroundColor(CarColor.YELLOW)
                     .setOnClickListener { startTracking() }.build()
@@ -228,7 +229,7 @@ class MainCarScreen(ctx: CarContext) : Screen(ctx) {
             } else {
                 strip.addAction(Action.Builder().setTitle("Koridor başı").setOnClickListener { Engine.markStart() }.build())
             }
-            strip.addAction(Action.Builder().setTitle(if (s.arrived != null) "Vardım · Bitir" else "Bitir").setOnClickListener { TrackingService.stop(carContext) }.build())
+            strip.addAction(Action.Builder().setTitle(if (s.arrived != null) "Vardım · Bitir" else "Bitir").setOnClickListener { TrackingService.end(carContext) }.build())
         }
         return NavigationTemplate.Builder()
             .setActionStrip(strip.build())

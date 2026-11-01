@@ -30,15 +30,31 @@ class TrackingService : Service() {
         private const val CH = "takip"
         private const val ID = 7
         private const val ACTION_STOP = "dur"
+        private const val ACTION_END = "bitir"
         private const val EXTRA_RESUME = "devam"
+        private const val EXTRA_STANDBY = "hazir"
         var running = false
             private set
 
-        /** resumeId verilirse o yarım kalan yolculuğa devam edilir. */
-        fun start(ctx: Context, resumeId: String? = null) {
+        /**
+         * Takibi başlatır. standby: konum açılır ama yolculuk kaydı araç hareket edince başlar.
+         * resumeId verilirse o yarım kalan yolculuğa devam edilir. Servis zaten açıksa ve
+         * standby değilse hazır durumdan sürüşe geçilir.
+         */
+        fun start(ctx: Context, resumeId: String? = null, standby: Boolean = false) {
+            if (running) {
+                if (!standby) Engine.beginTrip()
+                return
+            }
             val i = Intent(ctx, TrackingService::class.java)
             if (resumeId != null) i.putExtra(EXTRA_RESUME, resumeId)
+            if (standby) i.putExtra(EXTRA_STANDBY, true)
             ContextCompat.startForegroundService(ctx, i)
+        }
+
+        /** Sürüşü bitirir (kaydeder), konum açık kalır; servis yoksa motoru durdurur. */
+        fun end(ctx: Context) {
+            if (running) Engine.endTrip() else Engine.stop()
         }
 
         fun stop(ctx: Context) {
@@ -79,14 +95,20 @@ class TrackingService : Service() {
             shutdown()
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_END) {
+            Engine.endTrip()
+            return START_STICKY
+        }
         startFg()
         if (!running) {
             running = true
             // intent null ise sistem servisi yeniden başlattı: yarım kalan yolculuktan devam et
             val resumeId = intent?.getStringExtra(EXTRA_RESUME) ?: if (intent == null) TripStore.activeId() else null
             val resume = TripStore.get(resumeId)
-            Engine.startTracking("gps", resume)
-            Engine.say(if (resume != null) "Yolculuğa devam ediliyor." else "Takip başladı.")
+            val standby = resume == null && (intent == null || intent.getBooleanExtra(EXTRA_STANDBY, false))
+            Engine.onStandbyTimeout = { shutdown() }
+            Engine.startTracking(if (standby) "bekle" else "gps", resume)
+            if (!standby) Engine.say(if (resume != null) "Yolculuğa devam ediliyor." else "Sürüş başladı.")
             val m = getSystemService(Context.LOCATION_SERVICE) as LocationManager
             lm = m
             try {
@@ -103,14 +125,16 @@ class TrackingService : Service() {
                     val now = System.currentTimeMillis()
                     if (now - lastNotif > 3000) {
                         lastNotif = now
-                        val text = if (s.arrived != null) {
+                        val text = if (s.mode == "bekle") {
+                            "Hazır · hareket edince sürüş başlar"
+                        } else if (s.arrived != null) {
                             "Hedefe vardın: ${s.arrived} · bitirmek için “Sürüşü bitir”"
                         } else if (s.confirmed && s.corridor != null) {
                             "Koridor: ${s.avg?.roundToInt() ?: "—"} km/s · limit ${s.corridor.limit ?: "?"} · kalan ${Geo.fmtKm(s.remaining)}"
                         } else {
                             "Yolculuk ortalaması ${s.tripAvg?.roundToInt() ?: "—"} km/s · ${Geo.fmtKm(s.trip.dist)}"
                         }
-                        getSystemService(NotificationManager::class.java).notify(ID, build(text))
+                        getSystemService(NotificationManager::class.java).notify(ID, build(text, s.mode == "bekle"))
                     }
                 }
             }
@@ -118,22 +142,22 @@ class TrackingService : Service() {
         return START_STICKY
     }
 
-    private fun build(text: String): Notification {
+    private fun build(text: String, standby: Boolean = false): Notification {
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val stop = PendingIntent.getService(
-            this, 1, Intent(this, TrackingService::class.java).setAction(ACTION_STOP),
+            this, if (standby) 1 else 2, Intent(this, TrackingService::class.java).setAction(if (standby) ACTION_STOP else ACTION_END),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val stopAction = Notification.Action.Builder(
             android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-            "Sürüşü bitir", stop
+            if (standby) "Konumu kapat" else "Sürüşü bitir", stop
         ).build()
         return Notification.Builder(this, CH)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentTitle("Koridor Ortalama takipte")
+            .setContentTitle(if (standby) "Koridor Ortalama hazır" else "Koridor Ortalama takipte")
             .setContentText(text)
             .setContentIntent(open)
             .addAction(stopAction)

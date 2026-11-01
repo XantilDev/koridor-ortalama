@@ -49,7 +49,8 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
     var pendingResume by rememberSaveable { mutableStateOf<String?>(null) }
 
     fun begin(resumeId: String?) {
-        TrackingService.start(ctx, resumeId)
+        // Yarım kalan yolculuğa devam: hemen sürüş; değilse hazır durum (araç hareket edince başlar)
+        TrackingService.start(ctx, resumeId, standby = resumeId == null)
         if (!locationOn(ctx)) ask = "ayar"
     }
 
@@ -75,7 +76,7 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
         asked = true
         val half = TripStore.get(TripStore.activeId())
         when {
-            TrackingService.running -> ask = "suruyor"
+            TrackingService.running && Engine.state.value.driving -> ask = "suruyor"
             Engine.tracking -> {}
             half != null -> ask = "yarim"
             // Konum izni yoksa izni iste; izin varsa ve konum açıksa sormadan başla; kapalıysa sor
@@ -92,7 +93,7 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
             title = { Text("Yolculuğun sürüyor") },
             text = { Text("Takip arka planda devam ediyor (${Engine.summary()}). Devam etmek istiyor musun?") },
             confirmButton = { TextButton(onClick = { ask = null }) { Text("Devam et", fontWeight = FontWeight.Bold) } },
-            dismissButton = { TextButton(onClick = { ask = null; TrackingService.stop(ctx) }) { Text("Sürüşü bitir") } }
+            dismissButton = { TextButton(onClick = { ask = null; TrackingService.end(ctx) }) { Text("Sürüşü bitir") } }
         )
         "yarim" -> {
             val rec = TripStore.get(TripStore.activeId())
@@ -124,7 +125,7 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
             confirmButton = {
                 TextButton(onClick = {
                     ask = null
-                    TrackingService.start(ctx)
+                    TrackingService.start(ctx, standby = true)
                     ctx.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }) { Text("Konumu aç", fontWeight = FontWeight.Bold) }
             },
@@ -152,7 +153,7 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
 
     // Hedefe varış
     val arrived = s.arrived
-    if (ask == null && arrived != null && s.mode != "idle") {
+    if (ask == null && arrived != null && s.driving) {
         AlertDialog(
             onDismissRequest = { Engine.dismissArrival() },
             title = { Text("Hedefe vardın") },
@@ -160,7 +161,7 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
             confirmButton = {
                 TextButton(onClick = {
                     Engine.dismissArrival()
-                    if (s.mode == "gps") TrackingService.stop(ctx) else Engine.stop()
+                    TrackingService.end(ctx)
                 }) { Text("Sürüşü bitir", fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { Engine.dismissArrival() }) { Text("Devam et") } }

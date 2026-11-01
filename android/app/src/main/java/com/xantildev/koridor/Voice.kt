@@ -27,13 +27,11 @@ object Voice {
         fun has(vararg w: String) = w.any { x -> words.any { it.startsWith(x) } }
         when {
             has("bitir", "durdur", "kapat", "sonlandır") || t == "dur" -> {
-                if (Engine.tracking) {
-                    Engine.say("Sürüş bitiriliyor.")
-                    if (Engine.state.value.mode == "gps") TrackingService.stop(ctx) else Engine.stop()
-                } else Engine.say("Şu an süren bir sürüş yok.")
+                if (Engine.state.value.driving) TrackingService.end(ctx)
+                else Engine.say("Şu an süren bir sürüş yok.")
             }
             has("devam", "başlat", "başla") && words.size <= 3 -> {
-                if (!Engine.tracking) {
+                if (!Engine.state.value.driving) {
                     if (hasLocation(ctx)) TrackingService.start(ctx) else Engine.say("Önce konum izni vermen gerekiyor.")
                 } else Engine.say("Sürüş devam ediyor.")
             }
