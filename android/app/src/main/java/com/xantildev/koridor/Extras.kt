@@ -99,7 +99,7 @@ fun TripTypeSwitch(height: Int = 52, fontSize: Int = 17) {
         return
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Segments(listOf("sahsi" to "🔒 Şahsi", "is" to "💼 İş"), Firma.tripType, height, fontSize) { Firma.setTripType(it) }
+        Segments(listOf("sahsi" to "🔒 Şahsi", "is" to "💼 İş"), Firma.tripType, height, fontSize) { Firma.chooseTripType(it) }
         if (Firma.accounts.size > 1) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Sürücü:", color = XMuted, fontSize = 14.sp)
@@ -308,7 +308,7 @@ fun SettingsCard() {
         Text("Sesli bildirim", color = XFg, fontWeight = FontWeight.SemiBold)
         Segments(listOf("0" to "Her şey", "1" to "Sadece koridor", "2" to "Kapalı"), AppSettings.voiceLevel.toString(), 46, 15) { AppSettings.setVoice(it.toInt()) }
         Text("Gece modu (ekranı karartır)", color = XFg, fontWeight = FontWeight.SemiBold)
-        Segments(listOf("oto" to "Otomatik", "acik" to "Açık", "kapali" to "Kapalı"), AppSettings.night, 46, 15) { AppSettings.setNight(it) }
+        Segments(listOf("oto" to "Otomatik", "acik" to "Açık", "kapali" to "Kapalı"), AppSettings.night, 46, 15) { AppSettings.chooseNight(it) }
         Text("Otomatik: 20:00–07:00 arası.", color = XMuted, fontSize = 12.sp)
     }
 }

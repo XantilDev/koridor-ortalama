@@ -34,7 +34,7 @@ object AppSettings {
     }
 
     fun setVoice(v: Int) { voiceLevel = v; prefs.edit().putInt("ses", v).apply() }
-    fun setNight(v: String) { night = v; prefs.edit().putString("gece", v).apply() }
+    fun chooseNight(v: String) { night = v; prefs.edit().putString("gece", v).apply() }
 
     fun isNight(): Boolean = when (night) {
         "acik" -> true
@@ -152,7 +152,7 @@ object Firma {
         saveAccounts()
     }
 
-    fun setTripType(t: String) {
+    fun chooseTripType(t: String) {
         if (!enabled || t == tripType) return
         tripType = t
         lastMode = ""
