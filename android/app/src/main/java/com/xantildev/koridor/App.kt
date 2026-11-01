@@ -25,7 +25,9 @@ class App : Application() {
         TripStore.init(this)
         CorridorStore.init(this)
         CorridorCrawler.init(this)
+        AppSettings.init(this)
         Speaker.init(this)
+        Firma.init(this)
         Configuration.getInstance().load(this, getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
         Configuration.getInstance().userAgentValue = packageName
     }
@@ -56,5 +58,21 @@ object Speaker : TextToSpeech.OnInitListener {
     fun say(text: String) {
         if (!ready) return
         tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "k" + System.nanoTime())
+    }
+
+    private var tone: android.media.ToneGenerator? = null
+
+    /** Kısa uyarı sesi (Türkçe okuma yoksa da duyulur). 1 = koridor yaklaşıyor, 2 = ölçüm başladı, 3 = limit üstü. */
+    fun beep(kind: Int) {
+        if (AppSettings.voiceLevel == 2) return
+        try {
+            val t = tone ?: android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 90).also { tone = it }
+            when (kind) {
+                1 -> t.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 400)
+                2 -> t.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 500)
+                else -> t.startTone(android.media.ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 700)
+            }
+        } catch (_: Exception) {
+        }
     }
 }

@@ -34,7 +34,11 @@ data class TripRecord(
     val target: String?,
     val passes: List<CorridorPass>,
     val track: List<LatLng>,
-    val note: String = ""
+    val note: String = "",
+    /** "is", "sahsi" ya da "" (store sürümü) */
+    val purpose: String = "",
+    /** Firma sürümünde sürücü (çalışan adı) */
+    val driver: String = ""
 ) {
     val avg: Double? get() = if (timeS > 10) distM / timeS * 3.6 else null
     val moveAvg: Double? get() = if (moveS > 10) distM / moveS * 3.6 else null
@@ -88,6 +92,7 @@ object TripStore {
             .put("si", t.stopInS).put("so", t.stopOutS).put("x", t.sample)
             .put("hd", t.target ?: "")
             .put("not", t.note)
+            .put("amac", t.purpose).put("sofor", t.driver)
         val ps = JSONArray()
         t.passes.forEach { p ->
             ps.put(
@@ -122,7 +127,9 @@ object TripStore {
                 val q = tr.getJSONArray(i)
                 LatLng(q.getDouble(0), q.getDouble(1))
             },
-            o.optString("not")
+            o.optString("not"),
+            o.optString("amac"),
+            o.optString("sofor")
         )
     }
 }

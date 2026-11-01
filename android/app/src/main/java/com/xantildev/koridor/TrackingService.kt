@@ -122,6 +122,7 @@ class TrackingService : Service() {
             scope = sc
             sc.launch {
                 Engine.state.collect { s ->
+                    Firma.onState(s)
                     val now = System.currentTimeMillis()
                     if (now - lastNotif > 3000) {
                         lastNotif = now
@@ -185,6 +186,7 @@ class TrackingService : Service() {
         if (running) Engine.say("Takip durdu.")
         running = false
         Engine.stop()
+        Firma.onTrackingOff()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

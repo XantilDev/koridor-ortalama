@@ -46,6 +46,21 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+
+    // İki dağıtım: "firma" (APK, çalışanlar: Şahsi/İş, konum paylaşımı, personel bağlantısı)
+    // ve "store" (Play Store: firma özellikleri ve sunucuya veri gönderimi hiç yok).
+    flavorDimensions += "dagitim"
+    productFlavors {
+        create("firma") {
+            dimension = "dagitim"
+            buildConfigField("boolean", "FIRMA", "true")
+        }
+        create("store") {
+            dimension = "dagitim"
+            buildConfigField("boolean", "FIRMA", "false")
+        }
     }
 }
 

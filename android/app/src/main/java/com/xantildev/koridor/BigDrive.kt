@@ -88,6 +88,8 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
                 modifier = Modifier.height(44.dp)
             ) { Text("Ayrıntılar", fontSize = 15.sp) }
         }
+        SharingBadge(s)
+        ApproachBanner(s)
         // Büyük ortalama
         Box(
             Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(20.dp)).background(BPanel)
@@ -103,7 +105,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
         }
         // Limit tabelası + anlık hız
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
+            if (lim == null && s.roadLimit != null) RoadLimitSign(s, 120) else Box(
                 Modifier.size(132.dp).clip(CircleShape).background(if (lim != null) Color.White else BPanel)
                     .border(15.dp, if (lim != null) BRed else BLine, CircleShape),
                 contentAlignment = Alignment.Center
@@ -254,9 +256,10 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
                         color = BMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                 }
-                Text(s.gpsText, color = BMuted, fontSize = 14.sp, maxLines = 1,
+                if (Firma.active) SharingBadge(s) else Text(s.gpsText, color = BMuted, fontSize = 14.sp, maxLines = 1,
                     modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(99.dp)).padding(horizontal = 12.dp, vertical = 6.dp))
             }
+            ApproachBanner(s)
             // Ortalama + tabela + anlık
             Row(Modifier.fillMaxWidth().weight(1.15f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 androidx.compose.foundation.layout.BoxWithConstraints(
@@ -282,7 +285,7 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
                         Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(20.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(20.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Box(
+                        if (lim == null && s.roadLimit != null) RoadLimitSign(s, 84) else Box(
                             Modifier.padding(8.dp).size(96.dp).clip(CircleShape).background(if (lim != null) Color.White else BPanel)
                                 .border(12.dp, if (lim != null) BRed else BLine, CircleShape),
                             contentAlignment = Alignment.Center
@@ -448,6 +451,7 @@ private fun StandbyPanel(s: UiState, voice: () -> Unit, onDetails: () -> Unit, m
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Nereye gidiyoruz?", color = BFg, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            SharingBadge(s)
             Text(if (s.mode == "idle") "Konum kapalı" else s.gpsText.substringBefore(" ·").let { if (s.pos != null) "Konum hazır" else it },
                 color = BMuted, fontSize = 14.sp, maxLines = 1,
                 modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(99.dp)).padding(horizontal = 12.dp, vertical = 6.dp))
@@ -480,7 +484,7 @@ private fun StandbyPanel(s: UiState, voice: () -> Unit, onDetails: () -> Unit, m
             saved.take(4).forEach { add(Triple(it.name, it, "yer")) }
         }
         Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            tiles.chunked(2).take(3).forEach { row ->
+            tiles.chunked(2).take(if (Firma.enabled) 2 else 3).forEach { row ->
                 Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { (label, p, kind) ->
                         Column(
@@ -504,6 +508,8 @@ private fun StandbyPanel(s: UiState, voice: () -> Unit, onDetails: () -> Unit, m
         (rs.retryText ?: rs.msg)?.let {
             Text(it, color = if (rs.msgBad) BOver else BWarn, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
+        VehicleTypeSwitch(48, 16)
+        TripTypeSwitch(48, 16)
         Row(Modifier.height(70.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = voice, modifier = Modifier.weight(1f).fillMaxHeight(),
                 colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)) { Text("🎤 Konuş", fontSize = 20.sp, fontWeight = FontWeight.Bold) }

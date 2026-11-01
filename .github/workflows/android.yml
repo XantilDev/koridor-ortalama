@@ -32,7 +32,7 @@ jobs:
         working-directory: android
         run: |
           set -o pipefail
-          gradle :app:assembleDebug :app:bundleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+          gradle :app:assembleFirmaDebug :app:assembleStoreDebug :app:bundleStoreRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
       - name: Derleme hatasını kaydet
         if: failure()
@@ -48,12 +48,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk KoridorOrtalama.apk
-          cp android/app/build/outputs/bundle/release/app-release.aab KoridorOrtalama-play.aab
+          cp android/app/build/outputs/apk/firma/debug/app-firma-debug.apk KoridorOrtalama.apk
+          cp android/app/build/outputs/apk/store/debug/app-store-debug.apk KoridorOrtalama-store.apk
+          cp android/app/build/outputs/bundle/storeRelease/app-store-release.aab KoridorOrtalama-play.aab
           AAPT2=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)aapt2
           $AAPT2 dump xmltree --file AndroidManifest.xml KoridorOrtalama.apk > manifest.txt || true
           gh release delete son-surum --yes --cleanup-tag 2>/dev/null || true
-          gh release create son-surum KoridorOrtalama.apk KoridorOrtalama-play.aab manifest.txt \
+          gh release create son-surum KoridorOrtalama.apk KoridorOrtalama-store.apk KoridorOrtalama-play.aab manifest.txt \
             --title "Koridor Ortalama · test sürümü #${{ github.run_number }}" \
-            --notes "Kendi kullanımın için test sürümü. Telefona indirip kur." \
+            --notes "KoridorOrtalama.apk = firma sürümü (çalışanlar). KoridorOrtalama-store.apk = Play Store sürümünün denemesi (firma özellikleri yok). .aab = Play Console'a yüklenecek store sürümü." \
             --prerelease

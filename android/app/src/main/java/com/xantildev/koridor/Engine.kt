@@ -46,6 +46,10 @@ data class UiState(
     val partial: Boolean = false,
     val markText: String = "Listede olmayanı kendin ekle",
     val arrived: String? = null,
+    val approachC: Corridor? = null,
+    val approachD: Double? = null,
+    /** Koridor dışında bulunulan yolun haritadaki limiti (OpenStreetMap, varsa) */
+    val roadLimit: Int? = null,
     val tick: Long = 0
 ) {
     /** Yolculuk kaydı sürüyor mu ("bekle" = hazır: konum açık, kayıt yok). */
@@ -91,6 +95,28 @@ object Engine {
     private var tick = 0L
     private var tripStart = 0L
     private var lastFixWall = 0L
+    private var lastOverBeep = 0L
+    private var roadLimit: Int? = null
+    private var roadAt: LatLng? = null
+    private var roadAskedAt = 0L
+    private var roadBusy = false
+
+    /** Koridor dışındayken en fazla 45 sn'de bir ve 300 m'de bir yol limitine bakar. */
+    private fun checkRoadLimit(p: LatLng) {
+        if (mode != "gps" || roadBusy) return
+        val now = System.currentTimeMillis()
+        val last = roadAt
+        if (now - roadAskedAt < 45_000 || (last != null && Geo.dist(last, p) < 300)) return
+        roadAskedAt = now
+        roadBusy = true
+        scope.launch {
+            val v = try { TrafikApi.osmLimit(p) } catch (_: Exception) { null }
+            roadBusy = false
+            roadAt = p
+            roadLimit = v
+            publish()
+        }
+    }
     private var gapJob: Job? = null
     private val fullTrack = ArrayList<LatLng>()
     private val passes = ArrayList<CorridorPass>()
@@ -120,8 +146,15 @@ object Engine {
 
     val tracking: Boolean get() = mode != "idle"
 
-    fun say(text: String, key: String? = null, gap: Long = 30000) {
+    /** Yolculuk bitince özet kartı için (gösterilince null'lanır). */
+    val finished = MutableStateFlow<TripRecord?>(null)
+    private var approachC: Corridor? = null
+
+    /** corridor = koridorla ilgili konuşma ("Sadece koridor" ayarında da söylenir). */
+    fun say(text: String, key: String? = null, gap: Long = 30000, corridor: Boolean = false) {
         if (!voiceOn) return
+        val lvl = AppSettings.voiceLevel
+        if (lvl == 2 || (lvl == 1 && !corridor)) return
         val now = System.currentTimeMillis()
         if (key != null) {
             val l = lastSpoken[key]
@@ -159,6 +192,9 @@ object Engine {
         passes.clear()
         arrivedAt = null
         arrivedFor = null
+        approachC = null
+        roadLimit = null
+        roadAt = null
         savedTarget = resume?.target
         lastCheckpoint = System.currentTimeMillis()
         if (resume != null) {
@@ -204,7 +240,9 @@ object Engine {
                 sample = mode == "sim",
                 target = RouteSession.info?.target?.name ?: savedTarget,
                 passes = ArrayList(passes),
-                track = ArrayList(fullTrack)
+                track = ArrayList(fullTrack),
+                purpose = if (Firma.enabled) (if (Firma.isWork) "is" else "sahsi") else "",
+                driver = if (Firma.enabled) Firma.driver ?: "" else ""
             )
     }
 
@@ -215,7 +253,10 @@ object Engine {
             if (mode == "gps") TripStore.delete("y$tripStart") // çok kısa ara kayıt kalmasın
             return
         }
-        TripStore.save(record())
+        val rec = record()
+        TripStore.save(rec)
+        finished.value = rec
+        if (mode == "gps") Firma.uploadTrip(rec)
         if (mode == "gps") VehicleStore.addKm(VehicleStore.active.id, trip.dist / 1000)
     }
 
@@ -385,6 +426,7 @@ object Engine {
         if (lastFull == null || Geo.dist(lastFull, f.ll) > 25) fullTrack.add(f.ll)
         checkpoint()
         checkArrival(f.ll)
+        if (run == null) checkRoadLimit(f.ll)
 
         val r = run
         if (r == null) {
@@ -439,7 +481,7 @@ object Engine {
                 val mins = (dur / 60).toInt()
                 val secs = (dur % 60).roundToInt()
                 val durText = if (mins > 0) "$mins dakika $secs saniye" else "$secs saniye"
-                say("$durText durdun. Ortalaman önce ${a0.roundToInt()}, şimdi ${a1.roundToInt()}. ${gain.roundToInt()} saniye kazandın.$tail")
+                say(corridor = r.confirmed, text = "$durText durdun. Ortalaman önce ${a0.roundToInt()}, şimdi ${a1.roundToInt()}. ${gain.roundToInt()} saniye kazandın.$tail")
             }
             r.stopStart = null
         }
@@ -465,7 +507,8 @@ object Engine {
             val lim = r.c.limit
             val a = r.avg
             if (lim != null && a != null && r.elapsed > 60 && a > lim && r.stopStart == null) {
-                say("Dikkat, ortalaman ${a.roundToInt()}. Limit $lim.", "over", 45000)
+                if (lastOverBeep + 45000 < System.currentTimeMillis()) { lastOverBeep = System.currentTimeMillis(); Speaker.beep(3) }
+                say("Dikkat, ortalaman ${a.roundToInt()}. Limit $lim.", "over", 45000, corridor = true)
             }
         }
     }
@@ -528,7 +571,9 @@ object Engine {
 
     private fun announceStart(r: Run) {
         val c = r.c
-        say(
+        approachC = null
+        Speaker.beep(2)
+        say(corridor = true, text =
             (if (r.partial) "Koridorun içindesin. Ortalaman buradan itibaren hesaplanıyor, kalan ${Geo.km1(r.len)} kilometre. "
             else "Ortalama hız koridoru başladı. Uzunluk ${Geo.km1(c.lengthM)} kilometre. ") +
                 (c.limit?.let { "Limit $it." } ?: "Limit bilinmiyor.")
@@ -542,7 +587,7 @@ object Engine {
                 }
                 if (v != null && run === r && r.c.limit == null) {
                     r.c = r.c.copy(limit = v)
-                    say("Bu koridorda yol limiti $v görünüyor. Levhayı kontrol et.")
+                    say("Bu koridorda yol limiti $v görünüyor. Levhayı kontrol et.", corridor = true)
                     publish()
                 }
             }
@@ -563,7 +608,7 @@ object Engine {
         passes.add(CorridorPass(nm, lim, avg, r.elapsed, r.stopTotal, r.traveled))
         lastResult = "Son koridor: $nm — ortalama ${avg.roundToInt()} km/s" +
             (lim?.let { ", limit $it" } ?: "") + ", süre ${Geo.fmtT(r.elapsed)}."
-        say(
+        say(corridor = true, text =
             "Koridor bitti. Ortalaman ${avg.roundToInt()}" + when {
                 lim == null -> "."
                 avg <= lim -> ". Limitin altındasın."
@@ -577,13 +622,15 @@ object Engine {
         for (c in pool) {
             val k = c.key
             val d = Geo.dist(p, c.from)
-            if (d < 1600) {
+            if (d < 2000) {
                 val prevD = near[k]
                 if (k !in announced && prevD != null && d < prevD - 25 && d > ENTRY * 2) {
                     announced.add(k)
+                    approachC = c
+                    Speaker.beep(1)
                     approachText = "${Geo.km1(d)} km sonra koridor" + (c.limit?.let { " · limit $it" } ?: "") + " · ${c.name}"
                     approachAt = System.currentTimeMillis()
-                    say(
+                    say(corridor = true, text =
                         "${Geo.km1(d)} kilometre sonra ortalama hız koridoru. " +
                             (c.limit?.let { "Limit $it, " } ?: "") +
                             "uzunluk ${Geo.km1(c.lengthM)} kilometre."
@@ -758,6 +805,11 @@ object Engine {
             partial = r?.partial == true,
             markText = markText,
             arrived = arrivedAt,
+            roadLimit = roadLimit?.takeIf { r == null && roadAt?.let { a -> prev?.ll?.let { Geo.dist(a, it) < 1500 } } == true },
+            approachC = approachC?.takeIf { r == null },
+            approachD = approachC?.let { a -> prev?.ll?.let { Geo.dist(it, a.from) } }?.also { d ->
+                if (d > 2600) approachC = null
+            }?.takeIf { r == null && approachC != null },
             tick = tick
         )
     }

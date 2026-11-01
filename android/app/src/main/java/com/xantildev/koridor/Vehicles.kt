@@ -44,7 +44,9 @@ data class Vehicle(
     val name: String,
     val plate: String,
     val type: VehicleType,
-    val odoKm: Double
+    val odoKm: Double,
+    /** Şirket aracı mı (firma sürümü). Şahsi araçla yapılan hiçbir yolculuk firmaya gönderilmez. */
+    val company: Boolean = false
 )
 
 object VehicleStore {
@@ -63,7 +65,7 @@ object VehicleStore {
             val a = JSONArray(prefs.getString("list", "[]") ?: "[]")
             (0 until a.length()).map { i ->
                 val o = a.getJSONObject(i)
-                Vehicle(o.getString("id"), o.getString("n"), o.optString("p"), VehicleType.of(o.optString("t")), o.optDouble("km", 0.0))
+                Vehicle(o.getString("id"), o.getString("n"), o.optString("p"), VehicleType.of(o.optString("t")), o.optDouble("km", 0.0), o.optBoolean("sirket", false))
             }
         } catch (_: Exception) {
             emptyList()
@@ -75,7 +77,7 @@ object VehicleStore {
     private fun save() {
         val a = JSONArray()
         vehicles.forEach { v ->
-            a.put(JSONObject().put("id", v.id).put("n", v.name).put("p", v.plate).put("t", v.type.code).put("km", v.odoKm))
+            a.put(JSONObject().put("id", v.id).put("n", v.name).put("p", v.plate).put("t", v.type.code).put("km", v.odoKm).put("sirket", v.company))
         }
         prefs.edit().putString("list", a.toString()).putString("active", activeId).apply()
     }

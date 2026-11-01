@@ -69,6 +69,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -152,12 +153,15 @@ private fun Root(firstOpen: Boolean) {
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
     CrashReport()
     StartupPrompts(firstOpen, s)
+    TripSummaryDialog()
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    // Gece modu: bütün ekranı karartır (dokunmaları engellemez)
+    val dim = if (AppSettings.isNight()) Modifier.drawWithContent { drawContent(); drawRect(Color.Black.copy(alpha = 0.38f)) } else Modifier
     if (tab == 0 && Nav.big && (s.driving || wide)) {
-        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) { BigDrive(s) { Nav.big = false } }
+        Box(Modifier.fillMaxSize().then(dim).statusBarsPadding().navigationBarsPadding()) { BigDrive(s) { Nav.big = false } }
         return
     }
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().then(dim).statusBarsPadding().navigationBarsPadding()) {
         StatusLine(s, ver)
         TabRow(selectedTabIndex = tab, containerColor = Bg, contentColor = Fg) {
             listOf("Sürüş", "Nereye?", "Yolculuk", "Koridor").forEachIndexed { i, t ->
@@ -217,8 +221,9 @@ private fun StatusLine(s: UiState, ver: Int) {
         Box(Modifier.size(9.dp).clip(CircleShape).background(dot))
         Text(
             "  ${VehicleStore.active.plate.ifBlank { VehicleStore.active.name }} · ${s.gpsText} · $count koridor · ${s.speedKmh ?: "—"} km/s",
-            color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+            color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
         )
+        SharingBadge(s)
     }
 }
 
@@ -252,10 +257,15 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
             if (s.driving) OutlinedButton(onClick = { Nav.big = true }, modifier = Modifier.weight(1f).height(52.dp)) { Text("Büyük ekran", color = Fg, fontSize = 17.sp) }
         }
         RouteSession.retryText?.let { NoteBox(it, Warn) }
+        ApproachBanner(s, big = false)
         Hud(s) { limitFor = it }
         if (route != null) TripCard(s, route, onGoRoute)
         if (s.confirmed && s.corridor != null) WhatIf(s) { limitFor = it }
         Box(Modifier.fillMaxWidth().height(260.dp).clip(Card).border(1.dp, Line, Card)) { LiveMap(s, ver) }
+        if (!s.driving) {
+            VehicleTypeSwitch()
+            TripTypeSwitch()
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!s.driving) {
                 Button(
@@ -279,10 +289,8 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
             }
         }
         MarkBox(s)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Sesli bildirim", color = Fg, modifier = Modifier.weight(1f))
-            Switch(checked = voice, onCheckedChange = { voice = it; Engine.voiceOn = it })
-        }
+        SettingsCard()
+        FirmaCard()
         Text(
             "Zaman payı, ortalamanı limitte tutman için elinde kalan saniyedir. Ölçüm GPS'e dayanır, resmi cihazla birebir aynı olmayabilir; levhalar ve yasal limit esastır.",
             color = Muted, fontSize = 13.sp
@@ -1034,13 +1042,33 @@ private fun TripsTab(s: UiState) {
         TripDetail(t, onBack = { open = null }, onDelete = { TripStore.delete(t.id); open = null })
         return
     }
-    val trips = TripStore.trips
+    val all = TripStore.trips
+    var plateF by remember { mutableStateOf<String?>(null) }
+    var purposeF by remember { mutableStateOf<String?>(null) }
+    val plates = remember(all) { all.map { it.plate.ifBlank { it.vehicleName } }.filter { it.isNotBlank() }.distinct() }
+    val trips = all.filter { t -> (plateF == null || t.plate.ifBlank { t.vehicleName } == plateF) && (purposeF == null || t.purpose == purposeF) }
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item { VehicleCard(s) { vehDlg = true } }
+        item { WeeklySummary(trips) }
+        if (plates.size > 1 || Firma.enabled) item {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                chip("Tümü", plateF == null && purposeF == null) { plateF = null; purposeF = null }
+                if (plates.size > 1) plates.forEach { p -> chip(p, plateF == p) { plateF = if (plateF == p) null else p } }
+                if (Firma.enabled) {
+                    chip("💼 İş", purposeF == "is") { purposeF = if (purposeF == "is") null else "is" }
+                    chip("🔒 Şahsi", purposeF == "sahsi") { purposeF = if (purposeF == "sahsi") null else "sahsi" }
+                }
+            }
+            if (plateF != null) {
+                val cal = java.util.Calendar.getInstance().apply { set(java.util.Calendar.DAY_OF_MONTH, 1); set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0) }
+                val month = trips.filter { !it.sample && it.start >= cal.timeInMillis }.sumOf { it.distM }
+                Text("$plateF · bu ay ${Geo.fmtKm(month)}", color = Accent, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+            }
+        }
         item {
             val total = trips.filter { !it.sample }
             Text(
@@ -1055,6 +1083,13 @@ private fun TripsTab(s: UiState) {
     }
     if (vehDlg) VehicleDialog { vehDlg = false }
 }
+
+@Composable
+private fun chip(label: String, on: Boolean, click: () -> Unit) = Text(
+    label, color = if (on) Bg else Fg, fontSize = 14.sp,
+    modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(if (on) Fg else Panel)
+        .border(1.dp, Line, RoundedCornerShape(99.dp)).clickable(onClick = click).padding(horizontal = 12.dp, vertical = 7.dp)
+)
 
 @Composable
 private fun VehicleCard(s: UiState, onEdit: () -> Unit) {
@@ -1095,6 +1130,7 @@ private fun VehicleDialog(onClose: () -> Unit) {
     var name by remember(editing.id) { mutableStateOf(editing.name) }
     var plate by remember(editing.id) { mutableStateOf(editing.plate) }
     var type by remember(editing.id) { mutableStateOf(editing.type) }
+    var company by remember(editing.id) { mutableStateOf(editing.company) }
     var km by remember(editing.id) { mutableStateOf(if (editing.odoKm > 0) String.format(java.util.Locale.US, "%.0f", editing.odoKm) else "") }
     AlertDialog(
         onDismissRequest = onClose,
@@ -1110,7 +1146,7 @@ private fun VehicleDialog(onClose: () -> Unit) {
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(v.name + if (v.id == VehicleStore.activeId) " · aktif" else "", color = Fg, fontWeight = FontWeight.SemiBold)
-                            Text("${v.plate.ifBlank { "plakasız" }} · ${v.type.label}", color = Muted, fontSize = 12.sp)
+                            Text("${v.plate.ifBlank { "plakasız" }} · ${v.type.label}" + if (Firma.enabled) (if (v.company) " · 💼 şirket aracı" else " · 🔒 şahsi araç") else "", color = Muted, fontSize = 12.sp)
                         }
                     }
                 }
@@ -1131,6 +1167,15 @@ private fun VehicleDialog(onClose: () -> Unit) {
                     label = { Text("Şu anki km (gösterge)") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
+                if (Firma.enabled) {
+                    Text("Araç kimin?", color = Muted, fontSize = 12.sp)
+                    Segments(listOf("sahsi" to "🔒 Şahsi araç", "sirket" to "💼 Şirket aracı"), if (company) "sirket" else "sahsi", 46, 15) { company = it == "sirket" }
+                    Text(
+                        if (company) "Şirket aracında her yolculukta Şahsi / İş seçersin; yalnız İş yolculukları firmaya gider."
+                        else "Şahsi araçla yapılan yolculuklar ve konumun yalnız bu cihazda kalır, firmaya hiçbir kayıt gitmez.",
+                        color = Muted, fontSize = 12.sp
+                    )
+                }
                 Text("Araç tipi", color = Muted, fontSize = 12.sp)
                 VehicleType.values().forEach { vt ->
                     Row(
@@ -1159,7 +1204,8 @@ private fun VehicleDialog(onClose: () -> Unit) {
                         name = name.trim().ifBlank { "Aracım" },
                         plate = plate.trim(),
                         type = type,
-                        odoKm = km.toDoubleOrNull() ?: editing.odoKm
+                        odoKm = km.toDoubleOrNull() ?: editing.odoKm,
+                        company = company
                     )
                 )
                 VehicleStore.select(editing.id)
@@ -1190,7 +1236,8 @@ private fun TripRow(t: TripRecord, onClick: () -> Unit) {
             listOfNotNull(
                 t.plate.ifBlank { t.vehicleName },
                 t.target?.let { "→ $it" },
-                if (t.sample) "örnek sürüş" else null
+                if (t.sample) "örnek sürüş" else null,
+                when (t.purpose) { "is" -> "💼 İş" + if (t.driver.isNotBlank()) " · ${t.driver}" else ""; "sahsi" -> "🔒 Şahsi"; else -> null }
             ).joinToString(" · "),
             color = Muted, fontSize = 12.sp
         )
