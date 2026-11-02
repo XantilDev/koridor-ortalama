@@ -46,6 +46,7 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
     val prefs = remember { ctx.getSharedPreferences("ayar", Context.MODE_PRIVATE) }
     var ask by rememberSaveable { mutableStateOf<String?>(null) }
     var asked by rememberSaveable { mutableStateOf(false) }
+    var extrasDone by rememberSaveable { mutableStateOf(false) }
     var pendingResume by rememberSaveable { mutableStateOf<String?>(null) }
 
     fun begin(resumeId: String?) {
@@ -87,7 +88,33 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
         if (half == null && !TrackingService.running) TripStore.setActive(null)
     }
 
+    // Konum işi bitince: pil optimizasyonu ve ekran üstü gösterge izni (gerekiyorsa, 3 günde bir)
+    LaunchedEffect(asked, ask, extrasDone) {
+        if (!asked || ask != null || extrasDone) return@LaunchedEffect
+        kotlinx.coroutines.delay(1500)
+        if (ask != null) return@LaunchedEffect
+        when {
+            !Power.ignoringBattery(ctx) && Power.shouldAsk(ctx, "pil") -> ask = "pil"
+            AppSettings.overlay && !Overlay.allowed(ctx) && Power.shouldAsk(ctx, "ustte") -> ask = "ustte"
+            else -> extrasDone = true
+        }
+    }
+
     when (ask) {
+        "pil" -> AlertDialog(
+            onDismissRequest = { Power.markAsked(ctx, "pil"); ask = null },
+            title = { Text("Arka planda kapanmasın") },
+            text = { Text("Telefon pil tasarrufu için uygulamayı arka planda kapatabiliyor; o zaman yolculuk ve koridor ölçümü yarıda kalır. Bir sonraki ekranda “İzin ver” dersen sürüş boyunca açık kalır.") },
+            confirmButton = { TextButton(onClick = { Power.markAsked(ctx, "pil"); ask = null; Power.requestBattery(ctx) }) { Text("Devam", fontWeight = FontWeight.Bold) } },
+            dismissButton = { TextButton(onClick = { Power.markAsked(ctx, "pil"); ask = null }) { Text("Şimdi değil") } }
+        )
+        "ustte" -> AlertDialog(
+            onDismissRequest = { Power.markAsked(ctx, "ustte"); ask = null },
+            title = { Text("Her ekranda küçük gösterge") },
+            text = { Text("Uygulama arka plandayken (müzik, harita açıkken) ortalama hızını ve limiti küçük bir göstergeyle görmek için “Diğer uygulamaların üzerinde göster” iznini aç.") },
+            confirmButton = { TextButton(onClick = { Power.markAsked(ctx, "ustte"); ask = null; Power.requestOverlay(ctx) }) { Text("İzin ver", fontWeight = FontWeight.Bold) } },
+            dismissButton = { TextButton(onClick = { Power.markAsked(ctx, "ustte"); ask = null; extrasDone = true }) { Text("Şimdi değil") } }
+        )
         "suruyor" -> AlertDialog(
             onDismissRequest = { ask = null },
             title = { Text("Yolculuğun sürüyor") },
