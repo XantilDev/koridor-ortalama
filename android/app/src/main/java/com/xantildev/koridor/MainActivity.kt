@@ -257,6 +257,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
             if (s.driving) OutlinedButton(onClick = { Nav.big = true }, modifier = Modifier.weight(1f).height(52.dp)) { Text("Büyük ekran", color = Fg, fontSize = 17.sp) }
         }
         RouteSession.retryText?.let { NoteBox(it, Warn) }
+        if (Firma.enabled) TripTypeChip(large = false)
         ApproachBanner(s, big = false)
         Hud(s) { limitFor = it }
         if (route != null) TripCard(s, route, onGoRoute)

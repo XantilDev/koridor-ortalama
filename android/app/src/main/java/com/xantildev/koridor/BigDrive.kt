@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,7 +89,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
                 modifier = Modifier.height(44.dp)
             ) { Text("Ayrıntılar", fontSize = 15.sp) }
         }
-        SharingBadge(s)
+        if (Firma.enabled) TripTypeChip()
         ApproachBanner(s)
         // Büyük ortalama
         Box(
@@ -256,12 +257,12 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
                         color = BMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                 }
-                if (Firma.active) SharingBadge(s) else Text(s.gpsText, color = BMuted, fontSize = 14.sp, maxLines = 1,
+                if (Firma.enabled) TripTypeChip() else Text(s.gpsText, color = BMuted, fontSize = 14.sp, maxLines = 1,
                     modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(99.dp)).padding(horizontal = 12.dp, vertical = 6.dp))
             }
             ApproachBanner(s)
             // Ortalama + tabela + anlık
-            Row(Modifier.fillMaxWidth().weight(1.15f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 androidx.compose.foundation.layout.BoxWithConstraints(
                     Modifier.weight(1.35f).fillMaxHeight().clip(RoundedCornerShape(20.dp)).background(BPanel)
                         .border(3.dp, if (inC) col else BLine, RoundedCornerShape(20.dp)),
@@ -315,9 +316,9 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
                 }
             }
             // Tahmini ortalama
-            Estimate(s, inC, c, remTot, cruise, Modifier.fillMaxWidth().weight(1f))
+            Estimate(s, inC, c, remTot, cruise, Modifier.fillMaxWidth().heightIn(min = 150.dp))
             // Düğmeler
-            Row(Modifier.height(70.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.height(62.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = voice, modifier = Modifier.weight(1f).fillMaxHeight(),
                     colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)) { Text("🎤 Konuş", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
                 Button(onClick = onClose, modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -364,10 +365,10 @@ private fun Estimate(s: UiState, inC: Boolean, c: Corridor?, remTot: Double?, cr
     val vi = v.roundToInt().coerceIn(minV, maxV)
     Column(
         modifier.clip(RoundedCornerShape(20.dp)).background(BPanel).border(1.dp, BBlue.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text("TAHMİNİ ORTALAMA", color = BBlue, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Text("TAHMİNİ ORTALAMA", color = BBlue, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
         if (inC && lim == null) {
             Text("Bu koridorun limiti bilinmiyor. “Ayrıntılar”dan tabelaya dokunup levhadaki limiti girersen tahmin burada çıkar.", color = BFg, fontSize = 15.sp)
             return@Column
@@ -378,7 +379,7 @@ private fun Estimate(s: UiState, inC: Boolean, c: Corridor?, remTot: Double?, cr
         }
         Row(verticalAlignment = Alignment.Bottom) {
             Text(if (inC) "Kalan ${Geo.fmtKm(s.remaining)}'yi " else "Kalan yolu ", color = BMuted, fontSize = 16.sp)
-            Text("$vi km/s", color = if (lim != null && vi > lim) BWarn else BFg, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Text("$vi km/s", color = if (lim != null && vi > lim) BWarn else BFg, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(" ile gidersem", color = BMuted, fontSize = 16.sp)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -414,7 +415,7 @@ private fun Estimate(s: UiState, inC: Boolean, c: Corridor?, remTot: Double?, cr
 private fun ResBox(k: String, v: String, color: Color?, modifier: Modifier) {
     Column(modifier.clip(RoundedCornerShape(12.dp)).background(BBg).border(1.dp, BLine, RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
         Text(k, color = BMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(v, color = color ?: BFg, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(v, color = color ?: BFg, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
@@ -451,7 +452,7 @@ private fun StandbyPanel(s: UiState, voice: () -> Unit, onDetails: () -> Unit, m
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Nereye gidiyoruz?", color = BFg, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            SharingBadge(s)
+            if (Firma.enabled) TripTypeChip()
             Text(if (s.mode == "idle") "Konum kapalı" else s.gpsText.substringBefore(" ·").let { if (s.pos != null) "Konum hazır" else it },
                 color = BMuted, fontSize = 14.sp, maxLines = 1,
                 modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(99.dp)).padding(horizontal = 12.dp, vertical = 6.dp))

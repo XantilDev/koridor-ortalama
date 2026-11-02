@@ -405,3 +405,54 @@ fun WeeklySummary(trips: List<TripRecord>) {
         )
     }
 }
+
+/**
+ * Sürüş ekranında her zaman görünen Şahsi / İş etiketi (firma sürümü). Dokununca seçim penceresi açılır:
+ * şirket aracında Şahsi/İş ve sürücü, şahsi araçta "bu araç şirket aracı" seçeneği.
+ */
+@Composable
+fun TripTypeChip(large: Boolean = true) {
+    if (!Firma.enabled) return
+    var open by remember { mutableStateOf(false) }
+    val v = VehicleStore.active
+    val work = Firma.isWork
+    val text = when {
+        !v.company -> "🔒 Şahsi araç"
+        work -> "💼 İş" + (Firma.driver?.let { " · $it" } ?: " · bağlı değil")
+        else -> "🔒 Şahsi"
+    }
+    val col = if (work) XWarn else XFg
+    Text(
+        text + "  ▾", color = col, fontSize = if (large) 18.sp else 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(if (work) XWarn.copy(alpha = 0.15f) else XPanel)
+            .border(2.dp, if (work) XWarn else XLine, RoundedCornerShape(99.dp)).clickable { open = true }
+            .padding(horizontal = 14.dp, vertical = if (large) 9.dp else 6.dp)
+    )
+    if (open) AlertDialog(
+        onDismissRequest = { open = false },
+        title = { Text("Bu yolculuk") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (!v.company) {
+                    Text("${v.plate.ifBlank { v.name }} şahsi araç olarak kayıtlı. Şahsi araçla yapılan yolculuklar firmaya hiç gönderilmez.", fontSize = 15.sp)
+                    OutlinedButton(onClick = { VehicleStore.upsert(v.copy(company = true)) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Bu araç şirket aracı")
+                    }
+                } else {
+                    Segments(listOf("sahsi" to "🔒 Şahsi", "is" to "💼 İş"), Firma.tripType, 56, 18) { Firma.chooseTripType(it) }
+                    if (Firma.accounts.isEmpty()) {
+                        Text("İş yolculuğu için firmaya bağlı değilsin. “Ayrıntılar” → Sürüş sekmesinin altındaki Firma bölümünden bağlan.", color = XWarn, fontSize = 14.sp)
+                    } else if (Firma.accounts.size > 1) {
+                        Text("Sürücü", color = XMuted, fontSize = 13.sp)
+                        Segments(Firma.accounts.map { it.name to it.name }, Firma.driver ?: "", 48, 15) { Firma.selectDriver(it) }
+                    }
+                    Text(
+                        if (Firma.tripType == "is") "İş: konum ve yolculuk (km, süre, hedef) yöneticiyle paylaşılır." else "Şahsi: yolculuk ve konum yalnız bu cihazda kalır.",
+                        color = XMuted, fontSize = 13.sp
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { open = false }) { Text("Tamam", fontWeight = FontWeight.Bold) } }
+    )
+}
