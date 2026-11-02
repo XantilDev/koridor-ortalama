@@ -37,41 +37,18 @@ object Overlay {
 
     fun allowed(ctx: Context): Boolean = Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(ctx)
 
-    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var pending: Runnable? = null
-    private var lastState: UiState? = null
-
-    /**
-     * Takip servisinden ve uygulama ön/arka plana geçince çağrılır.
-     * Uygulama alta alınınca 1,2 sn bekleyip TEK gösterge açar (geçişlerde açılıp kapanmasın, üst üste binmesin).
-     */
+    /** Takip servisinden ve uygulama ön/arka plana geçince çağrılır. */
     fun update(ctx: Context, s: UiState) {
-        lastState = s
         val want = AppSettings.overlay && !appVisible && s.mode != "idle" && allowed(ctx)
-        if (!want) {
-            pending?.let { handler.removeCallbacks(it) }
-            pending = null
-            hide()
-            return
-        }
-        if (root != null) { render(s); return }
-        if (pending != null) return
-        val app = ctx.applicationContext
-        val r = Runnable {
-            pending = null
-            val st = lastState ?: return@Runnable
-            if (!AppSettings.overlay || appVisible || st.mode == "idle" || root != null) return@Runnable
-            create(app)
-            render(st)
-        }
-        pending = r
-        handler.postDelayed(r, 1200)
+        if (!want) { hide(); return }
+        if (root == null) create(ctx.applicationContext)
+        render(s)
     }
 
     fun hide() {
         val r = root ?: return
+        runCatching { wm?.removeView(r) }
         root = null
-        runCatching { if (r.isAttachedToWindow) wm?.removeViewImmediate(r) }
     }
 
     private fun pill(color: Int, stroke: Int) = GradientDrawable().apply {
@@ -82,7 +59,6 @@ object Overlay {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun create(ctx: Context) {
-        if (root != null) return
         dp = ctx.resources.displayMetrics.density
         val w = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         wm = w
