@@ -31,7 +31,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode"
             android:screenOrientation="unspecified">
             <intent-filter>
