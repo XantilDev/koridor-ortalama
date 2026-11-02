@@ -14,6 +14,11 @@ android {
         targetSdk = 36
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "0.1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
+        // Google Maps Platform anahtarı: GitHub'da MAPS_API_KEY gizli ayarı (ya da gradle özelliği). Yoksa boş:
+        // uygulama OpenStreetMap ile çalışır. Anahtar koda/depoya yazılmaz.
+        val mapsKey = (System.getenv("MAPS_API_KEY") ?: (project.findProperty("MAPS_API_KEY") as String?) ?: "").trim()
+        buildConfigField("String", "MAPS_KEY", "\"" + mapsKey + "\"")
+        manifestPlaceholders["MAPS_API_KEY"] = mapsKey
     }
 
     signingConfigs {
@@ -78,4 +83,5 @@ dependencies {
     implementation("androidx.car.app:app:1.4.0")
     implementation("androidx.car.app:app-projected:1.4.0")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+    implementation("com.google.android.gms:play-services-maps:19.0.0")
 }

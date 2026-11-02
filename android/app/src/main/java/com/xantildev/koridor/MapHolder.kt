@@ -16,9 +16,14 @@ import kotlin.math.max
 
 /** osmdroid haritası: konum, geçilen iz ve koridorlar. */
 @SuppressLint("ClickableViewAccessibility")
-class MapHolder(ctx: Context) {
+class MapHolder(ctx: Context) : LiveMapView {
     val map = MapView(ctx)
-    var onUserPan: () -> Unit = {}
+    override val view: android.view.View get() = map
+    override var onUserPan: () -> Unit = {}
+    override fun zoomIn() { map.controller.zoomIn() }
+    override fun zoomOut() { map.controller.zoomOut() }
+    override fun resume() { map.onResume() }
+    override fun pause() { map.onPause() }
 
     private val trail = Polyline(map)
     private val routeLine = Polyline(map)
@@ -61,7 +66,7 @@ class MapHolder(ctx: Context) {
         setSize(px, px)
     }
 
-    fun update(s: UiState, ver: Int, follow: Boolean) {
+    override fun update(s: UiState, ver: Int, follow: Boolean) {
         val sim = s.mode == "sim"
         val key = (ver * 2 + if (sim) 1 else 0) * 31 + System.identityHashCode(RouteSession.info)
         if (key != drawnKey) {
@@ -126,7 +131,7 @@ class MapHolder(ctx: Context) {
         }
     }
 
-    fun recenter(s: UiState) {
+    override fun recenter(s: UiState) {
         val p = s.pos ?: return
         map.controller.setZoom(max(map.zoomLevelDouble, 15.0))
         map.controller.setCenter(GeoPoint(p.lat, p.lon))

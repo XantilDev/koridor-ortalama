@@ -178,9 +178,9 @@ object RouteSession {
             msg = "Rota hesaplanıyor: ${p.name}…"
             // Yol çizgisi ve mesafe (varış tahmini için)
             val road = try {
-                osrm(here, p.ll)
+                if (GoogleApi.enabled) GoogleApi.route(here, p.ll) else osrm(here, p.ll)
             } catch (_: Exception) {
-                null
+                try { osrm(here, p.ll) } catch (_: Exception) { null }
             }
             // Koridorlar (trafik.gov.tr)
             var corridors: List<Corridor> = emptyList()

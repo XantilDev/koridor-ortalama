@@ -323,6 +323,11 @@ fun SettingsCard() {
             Text("Pil tasarrufu uygulamayı arka planda kapatabilir; yolculuk yarıda kalır.", color = XWarn, fontSize = 13.sp)
             OutlinedButton(onClick = { Power.requestBattery(ctx) }) { Text("Arka planda kapanmasın (pil izni)") }
         }
+        if (GoogleApi.enabled) {
+            Text("Harita", color = XFg, fontWeight = FontWeight.SemiBold)
+            Segments(listOf("google" to "Google", "osm" to "OpenStreetMap"), AppSettings.mapProvider, 46, 15) { AppSettings.chooseMap(it) }
+            Text("Google haritası açılmazsa (ör. Google hizmetleri olmayan araç ekranı) OpenStreetMap'e geç.", color = XMuted, fontSize = 12.sp)
+        }
         Text("Gece modu (ekranı karartır)", color = XFg, fontWeight = FontWeight.SemiBold)
         Segments(listOf("oto" to "Otomatik", "acik" to "Açık", "kapali" to "Kapalı"), AppSettings.night, 46, 15) { AppSettings.chooseNight(it) }
         Text("Otomatik: 20:00–07:00 arası.", color = XMuted, fontSize = 12.sp)

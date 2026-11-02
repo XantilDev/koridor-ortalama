@@ -59,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -536,14 +537,14 @@ private fun WhatIf(s: UiState, onSetLimit: (Corridor) -> Unit) {
 @Composable
 internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false) {
     val ctx = LocalContext.current
-    val holder = remember { MapHolder(ctx) }
+    val holder = remember(AppSettings.mapProvider) { MapChoice.create(ctx) }
     var follow by remember { mutableStateOf(true) }
     holder.onUserPan = { follow = false }
     Box(Modifier.fillMaxSize()) {
-        AndroidView(factory = { holder.map }, modifier = Modifier.fillMaxSize(), update = { holder.update(s, ver, follow) })
+        key(holder) { AndroidView(factory = { holder.view }, modifier = Modifier.fillMaxSize(), update = { holder.update(s, ver, follow) }) }
         if (controls) {
             Column(Modifier.align(Alignment.TopEnd).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("+" to { holder.map.controller.zoomIn(); Unit }, "−" to { holder.map.controller.zoomOut(); Unit }, "◎" to { follow = true; holder.recenter(s) })
+                listOf("+" to { holder.zoomIn() }, "−" to { holder.zoomOut() }, "◎" to { follow = true; holder.recenter(s) })
                     .forEach { (t, f) ->
                         Box(
                             Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xE60D1214))
@@ -560,9 +561,9 @@ internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false) {
             ) { Text("Konumuma dön") }
         }
     }
-    DisposableEffect(Unit) {
-        holder.map.onResume()
-        onDispose { holder.map.onPause() }
+    DisposableEffect(holder) {
+        holder.resume()
+        onDispose { holder.pause() }
     }
 }
 
@@ -749,6 +750,7 @@ private fun RouteTab() {
             color = Accent, fontSize = 13.sp
         )
         rs.msg?.let { NoteBox(it, if (rs.msgBad) Over else Line) }
+        if (rs.results.isNotEmpty() && Places.lastSearchGoogle) Text("Arama sonuçları: Google Maps", color = Muted, fontSize = 11.sp)
         rs.results.forEach { p ->
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Panel)

@@ -26,6 +26,7 @@ class App : Application() {
         CorridorStore.init(this)
         CorridorCrawler.init(this)
         AppSettings.init(this)
+        GoogleApi.init(this)
         ExitInfo.check(this)
         Speaker.init(this)
         Firma.init(this)

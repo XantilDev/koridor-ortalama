@@ -40,7 +40,22 @@ object Places {
         return null
     }
 
-    suspend fun search(q: String, near: LatLng?): List<Place> = withContext(Dispatchers.IO) {
+    /** Google anahtarı varsa Google ile (firmaları bulur), yoksa ya da hata olursa OpenStreetMap ile. */
+    suspend fun search(q: String, near: LatLng?): List<Place> {
+        if (GoogleApi.enabled) {
+            try {
+                return GoogleApi.search(q, near).also { lastSearchGoogle = true }
+            } catch (_: Exception) {
+            }
+        }
+        lastSearchGoogle = false
+        return searchOsm(q, near)
+    }
+
+    /** Son arama Google'dan mı geldi (sonuç listesinde "Google" ibaresi için) */
+    var lastSearchGoogle = false
+
+    private suspend fun searchOsm(q: String, near: LatLng?): List<Place> = withContext(Dispatchers.IO) {
         var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=tr&q=" +
             URLEncoder.encode(q, "UTF-8")
         if (near != null) {

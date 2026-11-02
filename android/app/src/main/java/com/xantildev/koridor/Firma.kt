@@ -35,9 +35,16 @@ object AppSettings {
         voiceLevel = prefs.getInt("ses", 0)
         night = prefs.getString("gece", "oto") ?: "oto"
         overlay = prefs.getBoolean("gosterge", true)
+        loadMap()
     }
 
     fun chooseOverlay(v: Boolean) { overlay = v; prefs.edit().putBoolean("gosterge", v).apply() }
+
+    /** "google" ya da "osm" (Google anahtarı varsa seçilebilir) */
+    var mapProvider by mutableStateOf("google")
+        private set
+    fun chooseMap(v: String) { mapProvider = v; prefs.edit().putString("harita", v).apply() }
+    fun loadMap() { mapProvider = prefs.getString("harita", "google") ?: "google" }
 
     fun setVoice(v: Int) { voiceLevel = v; prefs.edit().putInt("ses", v).apply() }
     fun chooseNight(v: String) { night = v; prefs.edit().putString("gece", v).apply() }

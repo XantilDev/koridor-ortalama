@@ -30,6 +30,8 @@ jobs:
 
       - name: APK derle
         working-directory: android
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
         run: |
           set -o pipefail
           gradle :app:assembleFirmaDebug :app:assembleStoreDebug :app:bundleStoreRelease --no-daemon --stacktrace 2>&1 | tee build.log
