@@ -26,12 +26,18 @@ object AppSettings {
     /** "oto" (20:00–07:00 arası), "acik", "kapali" */
     var night by mutableStateOf("oto")
         private set
+    /** Her ekranda küçük gösterge */
+    var overlay by mutableStateOf(true)
+        private set
 
     fun init(ctx: Context) {
         prefs = ctx.getSharedPreferences("ayar", Context.MODE_PRIVATE)
         voiceLevel = prefs.getInt("ses", 0)
         night = prefs.getString("gece", "oto") ?: "oto"
+        overlay = prefs.getBoolean("gosterge", true)
     }
+
+    fun chooseOverlay(v: Boolean) { overlay = v; prefs.edit().putBoolean("gosterge", v).apply() }
 
     fun setVoice(v: Int) { voiceLevel = v; prefs.edit().putInt("ses", v).apply() }
     fun chooseNight(v: String) { night = v; prefs.edit().putString("gece", v).apply() }

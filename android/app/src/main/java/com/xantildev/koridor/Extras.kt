@@ -307,6 +307,19 @@ fun SettingsCard() {
     ) {
         Text("Sesli bildirim", color = XFg, fontWeight = FontWeight.SemiBold)
         Segments(listOf("0" to "Her şey", "1" to "Sadece koridor", "2" to "Kapalı"), AppSettings.voiceLevel.toString(), 46, 15) { AppSettings.setVoice(it.toInt()) }
+        val ctx = LocalContext.current
+        Text("Her ekranda küçük gösterge", color = XFg, fontWeight = FontWeight.SemiBold)
+        Segments(listOf("acik" to "Açık", "kapali" to "Kapalı"), if (AppSettings.overlay) "acik" else "kapali", 46, 15) { AppSettings.chooseOverlay(it == "acik") }
+        if (AppSettings.overlay && !Overlay.allowed(ctx)) {
+            Text("Göstergenin diğer uygulamaların üstünde görünmesi için izin gerekiyor.", color = XWarn, fontSize = 13.sp)
+            OutlinedButton(onClick = {
+                runCatching {
+                    ctx.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }) { Text("İzin ver") }
+        } else if (AppSettings.overlay) {
+            Text("Uygulama arka plandayken her ekranda görünür. Dokun: uygulamayı aç. Basılı tutup sürükle: yerini değiştir.", color = XMuted, fontSize = 12.sp)
+        }
         Text("Gece modu (ekranı karartır)", color = XFg, fontWeight = FontWeight.SemiBold)
         Segments(listOf("oto" to "Otomatik", "acik" to "Açık", "kapali" to "Kapalı"), AppSettings.night, 46, 15) { AppSettings.chooseNight(it) }
         Text("Otomatik: 20:00–07:00 arası.", color = XMuted, fontSize = 12.sp)

@@ -121,6 +121,18 @@ class MainActivity : ComponentActivity() {
         handleShare(intent)
     }
 
+    override fun onStart() {
+        super.onStart()
+        Overlay.appVisible = true
+        Overlay.update(this, Engine.state.value)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        Overlay.appVisible = false
+        Overlay.update(this, Engine.state.value)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleShare(intent)

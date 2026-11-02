@@ -123,6 +123,7 @@ class TrackingService : Service() {
             sc.launch {
                 Engine.state.collect { s ->
                     Firma.onState(s)
+                    Overlay.update(this@TrackingService, s)
                     val now = System.currentTimeMillis()
                     if (now - lastNotif > 3000) {
                         lastNotif = now
@@ -187,6 +188,7 @@ class TrackingService : Service() {
         running = false
         Engine.stop()
         Firma.onTrackingOff()
+        Overlay.hide()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
