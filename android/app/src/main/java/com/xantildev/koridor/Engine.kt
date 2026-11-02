@@ -204,6 +204,7 @@ object Engine {
             fullTrack.addAll(resume.track)
             track.addAll(resume.track.takeLast(3000))
             passes.addAll(resume.passes)
+            restoreRun()
         }
         if (m == "gps") TripStore.setActive("y$tripStart")
         gapJob?.cancel()
@@ -248,7 +249,7 @@ object Engine {
 
     /** Takip bitince yolculuğu kaydeder ve aracın km sayacına ekler. */
     private fun saveTrip() {
-        if (mode == "gps") TripStore.setActive(null)
+        if (mode == "gps") { TripStore.setActive(null); TripStore.saveRun(null); runSaved = false }
         if (mode == "idle" || trip.dist < 300) {
             if (mode == "gps") TripStore.delete("y$tripStart") // çok kısa ara kayıt kalmasın
             return
@@ -261,7 +262,45 @@ object Engine {
     }
 
     /** Uygulama ya da telefon kapansa da yolculuk kaybolmasın diye 30 sn'de bir ara kayıt. */
+    private var lastRunSave = 0L
+    private var runSaved = false
+
+    /** Koridor ölçümünü 10 sn'de bir kaydeder; koridor bitince kaydı siler. */
+    private fun runCheckpoint() {
+        if (mode != "gps") return
+        val r = run
+        if (r == null || !r.confirmed) {
+            if (runSaved) { TripStore.saveRun(null); runSaved = false }
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastRunSave < 10_000) return
+        lastRunSave = now
+        runSaved = true
+        TripStore.saveRun(
+            org.json.JSONObject().put("trip", "y$tripStart").put("key", r.c.key).put("t0", r.t0).put("startD", r.startD)
+                .put("offset", r.offset).put("traveled", r.traveled).put("stop", r.stopTotal).put("minDEnd", r.minDEnd)
+                .put("saved", now)
+        )
+    }
+
+    /** Uygulama yeniden başlayınca yarım kalan koridor ölçümünü geri yükler. */
+    private fun restoreRun() {
+        val o = TripStore.loadRun() ?: return
+        if (o.optString("trip") != "y$tripStart" || System.currentTimeMillis() - o.optLong("saved") > 2 * 3600_000L) return
+        val c = pool().firstOrNull { it.key == o.optString("key") } ?: return
+        run = Run(c, o.getLong("t0"), o.optDouble("startD", 0.0), o.optDouble("offset", 0.0)).apply {
+            traveled = o.optDouble("traveled", 0.0)
+            stopTotal = o.optDouble("stop", 0.0)
+            minDEnd = o.optDouble("minDEnd", Double.MAX_VALUE)
+            confirmed = true
+            now = System.currentTimeMillis()
+        }
+        runSaved = true
+    }
+
     private fun checkpoint() {
+        runCheckpoint()
         if (mode != "gps" || trip.dist < 300) return
         val now = System.currentTimeMillis()
         if (now - lastCheckpoint < 30000) return

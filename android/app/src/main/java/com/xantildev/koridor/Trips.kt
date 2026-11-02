@@ -61,8 +61,18 @@ object TripStore {
 
     fun get(id: String?): TripRecord? = if (id == null) null else trips.firstOrNull { it.id == id }
 
+    private lateinit var runFile: File
+
+    /** Süren koridor ölçümünün ara kaydı (uygulama kapanıp açılırsa ölçüm baştan değil kaldığı yerden sürsün). */
+    fun saveRun(o: JSONObject?) {
+        runCatching { if (o == null) runFile.delete() else runFile.writeText(o.toString()) }
+    }
+
+    fun loadRun(): JSONObject? = runCatching { if (runFile.exists()) JSONObject(runFile.readText()) else null }.getOrNull()
+
     fun init(ctx: Context) {
         activeFile = File(ctx.filesDir, "aktif_yolculuk.txt")
+        runFile = File(ctx.filesDir, "aktif_koridor.json")
         dir = File(ctx.filesDir, "yolculuklar").apply { mkdirs() }
         trips = (dir.listFiles() ?: emptyArray())
             .mapNotNull { f -> runCatching { fromJson(JSONObject(f.readText())) }.getOrNull() }

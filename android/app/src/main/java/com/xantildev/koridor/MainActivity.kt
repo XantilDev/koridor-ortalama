@@ -292,6 +292,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         MarkBox(s)
         SettingsCard()
         FirmaCard()
+        ExitInfo.last?.let { Text(it, color = Muted, fontSize = 12.sp) }
         Text(
             "Zaman payı, ortalamanı limitte tutman için elinde kalan saniyedir. Ölçüm GPS'e dayanır, resmi cihazla birebir aynı olmayabilir; levhalar ve yasal limit esastır.",
             color = Muted, fontSize = 13.sp
