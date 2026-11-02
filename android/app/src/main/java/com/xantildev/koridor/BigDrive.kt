@@ -232,6 +232,8 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
             s.arrived?.let { MapChip("Hedefe vardın: $it", Modifier.align(Alignment.Center), BOk) }
         }
         // ---- Sağ panel ----
+        // Araç ekranı kısa olabilir: yükseklik azsa küçük kutular gizlenir, bilgileri ortalama kartına yazılır
+        val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 640
         if (!s.driving) {
             StandbyPanel(s, voice, onClose, Modifier.weight(1f).fillMaxHeight())
             return@Row
@@ -268,12 +270,17 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
                         .border(3.dp, if (inC) col else BLine, RoundedCornerShape(20.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    val big = with(androidx.compose.ui.platform.LocalDensity.current) { (maxHeight * 0.5f).toSp() }
+                    val big = with(androidx.compose.ui.platform.LocalDensity.current) { (maxHeight * (if (compact) 0.4f else 0.5f)).toSp() }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(if (inC) (if (s.partial) "ORTALAMA (BURADAN)" else "KORİDOR ORTALAMASI") else "YOLCULUK ORTALAMASI",
                             color = BMuted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
                         Text(avg?.roundToInt()?.toString() ?: "—", color = col, fontSize = big, lineHeight = big, fontWeight = FontWeight.Bold, maxLines = 1)
                         Text("km/s", color = BMuted, fontSize = 16.sp)
+                        if (compact) Text(
+                            if (inC) "Kalan ${Geo.fmtKm(s.remaining)} · pay ${s.slack?.let { Geo.fmtSlack(it) } ?: "—"}"
+                            else "${Geo.fmtKm(s.trip.dist)} · ${Geo.fmtT(s.trip.time)} · bekleme ${Geo.fmtT(s.trip.stop)}",
+                            color = BFg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
+                        )
                     }
                     if (inC) LinearProgressIndicator(
                         progress = { s.progress },
@@ -304,7 +311,7 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
                 }
             }
             // Küçük kutular
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (!compact) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (inC) {
                     WideTile("KALAN", Geo.fmtKm(s.remaining), null, Modifier.weight(1f))
                     WideTile("ZAMAN PAYI", s.slack?.let { Geo.fmtSlack(it) } ?: "—", s.slack?.let { if (it >= 0) BOk else BOver }, Modifier.weight(1f))
@@ -316,7 +323,7 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
                 }
             }
             // Tahmini ortalama
-            Estimate(s, inC, c, remTot, cruise, Modifier.fillMaxWidth().heightIn(min = 150.dp))
+            Estimate(s, inC, c, remTot, cruise, compact, Modifier.fillMaxWidth())
             // Düğmeler
             Row(Modifier.height(62.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = voice, modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -355,7 +362,7 @@ private fun dur(sec: Double): String {
  * koridor dışındaysa varış saati ve yolculuk ortalaması tahmini. Çubuk en fazla limit +%10.
  */
 @Composable
-private fun Estimate(s: UiState, inC: Boolean, c: Corridor?, remTot: Double?, cruise: Double, modifier: Modifier) {
+private fun Estimate(s: UiState, inC: Boolean, c: Corridor?, remTot: Double?, cruise: Double, compact: Boolean, modifier: Modifier) {
     val lim = if (inC) c?.limit else null
     val maxV = if (lim != null) kotlin.math.floor(lim * 1.1).toInt() else 140
     val minV = 40
@@ -368,7 +375,7 @@ private fun Estimate(s: UiState, inC: Boolean, c: Corridor?, remTot: Double?, cr
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text("TAHMİNİ ORTALAMA", color = BBlue, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        if (!compact) Text("TAHMİNİ ORTALAMA", color = BBlue, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
         if (inC && lim == null) {
             Text("Bu koridorun limiti bilinmiyor. “Ayrıntılar”dan tabelaya dokunup levhadaki limiti girersen tahmin burada çıkar.", color = BFg, fontSize = 15.sp)
             return@Column
@@ -378,7 +385,8 @@ private fun Estimate(s: UiState, inC: Boolean, c: Corridor?, remTot: Double?, cr
             return@Column
         }
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(if (inC) "Kalan ${Geo.fmtKm(s.remaining)}'yi " else "Kalan yolu ", color = BMuted, fontSize = 16.sp)
+            if (compact) Text("TAHMİN  ", color = BBlue, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(if (inC) "Kalan ${Geo.fmtKm(s.remaining)}'yi " else "Kalan ${remTot?.let { Geo.fmtKm(it) } ?: "yolu"} ", color = BMuted, fontSize = 16.sp)
             Text("$vi km/s", color = if (lim != null && vi > lim) BWarn else BFg, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(" ile gidersem", color = BMuted, fontSize = 16.sp)
         }
