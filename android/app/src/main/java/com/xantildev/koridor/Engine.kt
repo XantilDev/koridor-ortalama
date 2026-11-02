@@ -191,7 +191,8 @@ object Engine {
         fullTrack.clear()
         passes.clear()
         arrivedAt = null
-        arrivedFor = null
+        // arrivedFor bilerek sıfırlanmaz: aynı hedef için "vardın" bir kez sorulur
+        if (RouteSession.info?.target?.name != arrivedFor) arrivedFor = null
         approachC = null
         roadLimit = null
         roadAt = null
@@ -321,6 +322,7 @@ object Engine {
     }
 
     private var movingSince: Long? = null
+    private var lastEndAt: LatLng? = null
     private var lastMoveWall = 0L
     /** Hazır durumda uzun süre hareket olmazsa takibi kapatmak için (servis bağlar). */
     var onStandbyTimeout: (() -> Unit)? = null
@@ -336,6 +338,9 @@ object Engine {
         if (kmh >= 5) lastMoveWall = System.currentTimeMillis()
         if (kmh >= 15) {
             val since = movingSince ?: f.t.also { movingSince = it }
+            // Bitirilen yolculuğun hemen yanında (park, manevra) yeni sürüş açma; 400 m uzaklaşınca başlar
+            val endAt = lastEndAt
+            if (endAt != null && Geo.dist(endAt, f.ll) < 400) { movingSince = f.t; publish(); return }
             if (f.t - since >= 5000) {
                 beginTrip()
                 return
@@ -354,6 +359,7 @@ object Engine {
     /** Hazır durumdan sürüşe geç (hedef seçilince, "Başlat"a basınca ya da araç hareket edince). */
     fun beginTrip() {
         if (mode != "bekle") return
+        lastEndAt = null
         startTracking("gps")
         say("Sürüş başladı.")
     }
@@ -362,7 +368,11 @@ object Engine {
     fun endTrip() {
         when (mode) {
             "gps" -> {
+                val reached = arrivedFor != null && arrivedFor == RouteSession.info?.target?.name
+                lastEndAt = prev?.ll
                 saveTrip()
+                // Hedefe varılıp bitirildiyse hedef temizlenir; park ederken yeni sürüş/yeni "vardın" sorusu çıkmaz
+                if (reached) RouteSession.clear()
                 startTracking("bekle")
                 say("Sürüş bitti ve kaydedildi.")
             }
