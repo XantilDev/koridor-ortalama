@@ -222,12 +222,9 @@ fun TripSummaryDialog() {
                     }
                 }
                 if (Firma.enabled) Text(
-                    if (t.purpose == "is") "💼 İş yolculuğu · ${t.driver.ifBlank { "sürücü yok" }} — km raporuna işlendi." else "🔒 Şahsi yolculuk — firmaya gönderilmedi.",
+                    if (t.purpose == "is") "💼 İş yolculuğu · ${t.driver.ifBlank { "sürücü yok" }} — yöneticinin Yolculuklar listesine işlendi." else "🔒 Şahsi yolculuk — firmaya gönderilmedi.",
                     color = XMuted, fontSize = 13.sp
                 )
-                if (Firma.enabled && t.purpose == "is" && Firma.connected) {
-                    OutlinedButton(onClick = { field = true }, modifier = Modifier.fillMaxWidth()) { Text("Personel saha kaydına ekle") }
-                }
             }
         },
         confirmButton = {
