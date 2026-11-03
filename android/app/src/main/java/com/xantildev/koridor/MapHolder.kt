@@ -29,6 +29,28 @@ class MapHolder(ctx: Context) : LiveMapView {
     private val routeLine = Polyline(map)
     private var drawnRoute: RouteSession.Info? = null
     private var fittedTarget: Places.Place? = null
+    private val altLines = ArrayList<Polyline>()
+    private var drawnAlts: Any? = null
+    private var drawnAltIndex = -1
+
+    /** Seçilmeyen rota seçenekleri gri; dokununca o rota seçilir. */
+    private fun drawAlts() {
+        val alts = RouteSession.alts
+        if (alts === drawnAlts && RouteSession.altIndex == drawnAltIndex) return
+        drawnAlts = alts; drawnAltIndex = RouteSession.altIndex
+        altLines.forEach { map.overlays.remove(it) }
+        altLines.clear()
+        alts.forEachIndexed { i, a ->
+            if (i == RouteSession.altIndex) return@forEachIndexed
+            val pl = Polyline(map)
+            pl.setPoints(a.line.map { GeoPoint(it.lat, it.lon) })
+            pl.outlinePaint.color = 0xCC8A96A3.toInt()
+            pl.outlinePaint.strokeWidth = 12f
+            pl.setOnClickListener { _, _, _ -> RouteSession.selectAlt(i); true }
+            altLines.add(pl)
+            map.overlays.add(0, pl)
+        }
+    }
     private val startMark = Marker(map)
     private val endMark = Marker(map)
     private val you = Marker(map)
@@ -74,6 +96,7 @@ class MapHolder(ctx: Context) : LiveMapView {
             drawnKey = key
             drawCorridors(sim)
         }
+        drawAlts()
         val ri = RouteSession.info
         if (ri !== drawnRoute) {
             drawnRoute = ri

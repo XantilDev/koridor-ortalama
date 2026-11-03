@@ -82,6 +82,35 @@ object RouteSession {
     var query by mutableStateOf("")
     var results by mutableStateOf<List<Places.Place>>(emptyList())
 
+    /** Alternatif rota: çizgi, km, süre ve üstündeki koridorlar. */
+    class Alt(val line: List<LatLng>, val distM: Double, val durS: Double, val corridors: List<Corridor>) {
+        val edsKm: Double get() = corridors.sumOf { it.lengthM } / 1000
+    }
+
+    /** Hedefe giden seçenekler (en fazla 3) ve seçili olan */
+    var alts by mutableStateOf<List<Alt>>(emptyList())
+        private set
+    var altIndex by mutableIntStateOf(0)
+        private set
+
+    /** Haritada/listede bir seçeneğe dokununca: o rota etkin olur. */
+    fun selectAlt(i: Int) {
+        val a = alts.getOrNull(i) ?: return
+        val cur = info ?: return
+        if (i == altIndex) return
+        altIndex = i
+        info = Info(cur.target, a.corridors, a.line, a.distM, a.durS, cur.start, cur.startLabel, cur.targetLabel, "yol", cur.corridorsMissing)
+        offSince = 0
+        Engine.say("Rota ${"ABC"[i]} seçildi. ${durSay(a.durS)}, ${a.corridors.size} koridor.")
+    }
+
+    private fun durSay(s: Double): String {
+        val m = (s / 60).toInt()
+        return if (m >= 60) "${m / 60} saat ${m % 60} dakika" else "$m dakika"
+    }
+
+    private fun onLine(c: Corridor, line: List<LatLng>) = Geo.distToLine(c.from, line) < 400 && Geo.distToLine(c.to, line) < 400
+
     private var retryJob: kotlinx.coroutines.Job? = null
     var retryText by mutableStateOf<String?>(null)
 
@@ -90,18 +119,23 @@ object RouteSession {
         retryText = null
         info = null
         msg = null
+        alts = emptyList()
+        altIndex = 0
+    }
+
+    /** trafik.gov.tr'den iki ilçe arasındaki bütün koridorlar (filtresiz). */
+    private suspend fun fetchAll(here: LatLng, p: Places.Place): Triple<List<Corridor>, String, String> {
+        val a = DistrictFinder.nearest(here, null)
+        val b = DistrictFinder.nearest(p.ll, p.province)
+        return Triple(TrafikApi.route(a, b), a.name, b.name)
     }
 
     /** trafik.gov.tr'den rotadaki koridorlar (yalnız rota çizgisinin üstündekiler). */
     private suspend fun fetchCorridors(here: LatLng, p: Places.Place, line: List<LatLng>?): Triple<List<Corridor>, String, String> {
-        val a = DistrictFinder.nearest(here, null)
-        val b = DistrictFinder.nearest(p.ll, p.province)
-        val all = TrafikApi.route(a, b)
-        val list = if (line != null) all.filter {
-            Geo.distToLine(it.from, line) < 400 && Geo.distToLine(it.to, line) < 400
-        } else all
+        val (all, a, b) = fetchAll(here, p)
+        val list = if (line != null) all.filter { onLine(it, line) } else all
         CorridorStore.addRoute(list)
-        return Triple(list, a.name, b.name)
+        return Triple(list, a, b)
     }
 
     /** Koridorlar alınamadıysa vazgeçme: 30 sn'den başlayıp aralığı açarak (en çok 5 dk) tekrar dene. */
@@ -171,6 +205,7 @@ object RouteSession {
             retryText = null
             if (road == null || info?.target != p) return@launch
             reroutes++
+            alts = emptyList(); altIndex = 0
             val line = road.first
             // Yeni yoldaki koridorlar: telefonda kayıtlı olanlardan hemen; trafik.gov.tr'den arkada tamamlanır
             val near = CorridorStore.all().filter { Geo.distToLine(it.from, line) < 400 && Geo.distToLine(it.to, line) < 400 }
@@ -229,31 +264,35 @@ object RouteSession {
                 return@launch
             }
             msg = "Rota hesaplanıyor: ${p.name}…"
-            // Yol çizgisi ve mesafe (varış tahmini için)
-            val road = try {
-                if (GoogleApi.enabled) GoogleApi.route(here, p.ll) else osrm(here, p.ll)
+            // Yol çizgileri: en fazla 3 seçenek (Google ya da OSRM)
+            val roads = try {
+                if (GoogleApi.enabled) GoogleApi.routes(here, p.ll, true) else osrmAll(here, p.ll, true)
             } catch (_: Exception) {
-                try { osrm(here, p.ll) } catch (_: Exception) { null }
+                try { osrmAll(here, p.ll, true) } catch (_: Exception) { emptyList() }
             }
-            // Koridorlar (trafik.gov.tr)
-            var corridors: List<Corridor> = emptyList()
+            val road = roads.firstOrNull()
+            // Koridorlar (trafik.gov.tr) tek sorguyla alınır, her seçeneğe ayrı ayrı dağıtılır
+            var pool: List<Corridor> = emptyList()
             var err: String? = null
             var startLabel = "konumun"
             var targetLabel = p.name
             try {
-                val (list, a, b) = fetchCorridors(here, p, road?.first)
-                corridors = list
+                val (all, a, b) = fetchAll(here, p)
+                val used = all.filter { c -> roads.isEmpty() || roads.any { onLine(c, it.first) } }
+                CorridorStore.addRoute(used)
+                pool = used
                 startLabel = a
                 targetLabel = b
             } catch (e: Exception) {
                 // Rotada daha önce kaydedilmiş koridorlar varsa onlar hemen kullanılır
-                val line0 = road?.first
-                if (line0 != null) corridors = CorridorStore.all().filter {
-                    Geo.distToLine(it.from, line0) < 400 && Geo.distToLine(it.to, line0) < 400
-                }
-                err = "Koridor bilgisi şu an alınamadı (${e.message ?: "bağlantı hatası"}). Sürüş boyunca arada tekrar denenecek" +
-                    (if (corridors.isNotEmpty()) "; telefonda kayıtlı ${corridors.size} koridor kullanılıyor." else ".")
+                pool = CorridorStore.all()
+                err = "Koridor bilgisi şu an alınamadı (${e.message ?: "bağlantı hatası"}). Sürüş boyunca arada tekrar denenecek."
             }
+            val altList = roads.map { (ln, d, t) -> Alt(ln, d, t, pool.filter { onLine(it, ln) }) }
+            alts = if (altList.size > 1) altList else emptyList()
+            altIndex = 0
+            val corridors = altList.firstOrNull()?.corridors ?: if (err == null) pool else emptyList()
+            if (err != null && corridors.isNotEmpty()) err += " Telefonda kayıtlı ${corridors.size} koridor kullanılıyor."
             val line = road?.first ?: listOf(here, p.ll)
             val total = road?.second ?: (Geo.dist(here, p.ll) * 1.25)
             val dur = road?.third ?: (total / (80 / 3.6))
@@ -264,30 +303,36 @@ object RouteSession {
             busy = false
             if (err == null) {
                 Engine.say(
-                    if (corridors.isEmpty()) "${p.name} rotası hazır. Rotada kayıtlı ortalama hız koridoru yok."
-                    else "${p.name} rotası hazır. Rotanızda ${corridors.size} ortalama hız koridoru var."
+                    (if (corridors.isEmpty()) "${p.name} rotası hazır. Rotada kayıtlı ortalama hız koridoru yok."
+                    else "${p.name} rotası hazır. Rotanızda ${corridors.size} ortalama hız koridoru var.") +
+                        if (alts.size > 1) " ${alts.size} farklı rota var, ekrandan seçebilirsin." else ""
                 )
             }
         }
     }
 
     /** OSRM (OpenStreetMap) ile araç rotası: çizgi, metre, saniye. */
-    private suspend fun osrm(a: LatLng, b: LatLng): Triple<List<LatLng>, Double, Double> = withContext(Dispatchers.IO) {
-        val url = "https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=full&geometries=geojson"
+    private suspend fun osrm(a: LatLng, b: LatLng): Triple<List<LatLng>, Double, Double> = osrmAll(a, b, false).first()
+
+    private suspend fun osrmAll(a: LatLng, b: LatLng, alternatives: Boolean): List<Triple<List<LatLng>, Double, Double>> = withContext(Dispatchers.IO) {
+        val url = "https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=full&geometries=geojson" +
+            if (alternatives) "&alternatives=3" else ""
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 20000
         c.setRequestProperty("User-Agent", "KoridorOrtalama/0.1")
         val text = c.inputStream.bufferedReader().use { it.readText() }
         c.disconnect()
-        val o = JSONObject(text)
-        val r = o.getJSONArray("routes").getJSONObject(0)
-        val co = r.getJSONObject("geometry").getJSONArray("coordinates")
-        val line = (0 until co.length()).map { i ->
-            val q = co.getJSONArray(i)
-            LatLng(q.getDouble(1), q.getDouble(0))
+        val arr = JSONObject(text).getJSONArray("routes")
+        (0 until minOf(3, arr.length())).map { k ->
+            val r = arr.getJSONObject(k)
+            val co = r.getJSONObject("geometry").getJSONArray("coordinates")
+            val line = (0 until co.length()).map { i ->
+                val q = co.getJSONArray(i)
+                LatLng(q.getDouble(1), q.getDouble(0))
+            }
+            Triple(line, r.getDouble("distance"), r.getDouble("duration"))
         }
-        Triple(line, r.getDouble("distance"), r.getDouble("duration"))
     }
 
     /** Google Haritalar'dan paylaşılan metni (isim + kısa link) bir yere çevirir. */

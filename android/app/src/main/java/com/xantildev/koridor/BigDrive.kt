@@ -90,6 +90,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
             ) { Text("Ayrıntılar", fontSize = 15.sp) }
         }
         if (Firma.enabled) TripTypeChip()
+        if (s.trip.dist < 5000) RouteChoices(compact = true)
         ApproachBanner(s)
         // Büyük ortalama
         Box(
@@ -262,7 +263,7 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
                 if (Firma.enabled) TripTypeChip() else Text(s.gpsText, color = BMuted, fontSize = 14.sp, maxLines = 1,
                     modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(99.dp)).padding(horizontal = 12.dp, vertical = 6.dp))
             }
-            ApproachBanner(s)
+            if (s.trip.dist < 5000 && RouteSession.alts.size > 1) RouteChoices(compact = true) else ApproachBanner(s)
             // Ortalama + tabela + anlık
             Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 androidx.compose.foundation.layout.BoxWithConstraints(

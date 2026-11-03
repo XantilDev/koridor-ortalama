@@ -93,15 +93,24 @@ object GoogleApi {
     }
 
     /** Araç rotası (Routes API · Essentials): çizgi, metre, saniye. */
-    suspend fun route(a: LatLng, b: LatLng): Triple<List<LatLng>, Double, Double> = withContext(Dispatchers.IO) {
+    suspend fun route(a: LatLng, b: LatLng): Triple<List<LatLng>, Double, Double> = routes(a, b, false).first()
+
+    /** Alternatifli rota (en fazla 3). computeAlternativeRoutes ücret sınıfını değiştirmez (tek istek, Essentials). */
+    suspend fun routes(a: LatLng, b: LatLng, alternatives: Boolean): List<Triple<List<LatLng>, Double, Double>> = withContext(Dispatchers.IO) {
         fun wp(p: LatLng) = JSONObject().put("location", JSONObject().put("latLng", JSONObject().put("latitude", p.lat).put("longitude", p.lon)))
         val body = JSONObject().put("origin", wp(a)).put("destination", wp(b))
             .put("travelMode", "DRIVE").put("routingPreference", "TRAFFIC_UNAWARE").put("languageCode", "tr").put("units", "METRIC")
+            .put("computeAlternativeRoutes", alternatives)
         val o = post("https://routes.googleapis.com/directions/v2:computeRoutes", "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline", body)
-        val r = o.optJSONArray("routes")?.optJSONObject(0) ?: throw IOException("Google: rota bulunamadı")
-        val line = decode(r.getJSONObject("polyline").getString("encodedPolyline"))
-        val dur = r.optString("duration").removeSuffix("s").toDoubleOrNull() ?: 0.0
-        Triple(line, r.optDouble("distanceMeters", Geo.pathLength(line)), dur)
+        val arr = o.optJSONArray("routes") ?: JSONArray()
+        val out = (0 until arr.length()).mapNotNull { i ->
+            val r = arr.getJSONObject(i)
+            val enc = r.optJSONObject("polyline")?.optString("encodedPolyline")?.ifBlank { null } ?: return@mapNotNull null
+            val line = decode(enc)
+            Triple(line, r.optDouble("distanceMeters", Geo.pathLength(line)), r.optString("duration").removeSuffix("s").toDoubleOrNull() ?: 0.0)
+        }.take(3)
+        if (out.isEmpty()) throw IOException("Google: rota bulunamadı")
+        out
     }
 
     /** Google'ın kodlanmış çizgi biçimini çözer. */

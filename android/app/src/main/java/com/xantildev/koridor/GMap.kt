@@ -30,6 +30,24 @@ class GMapHolder(ctx: Context) : LiveMapView {
     private var drawnKey = -1
     private var drawnRoute: RouteSession.Info? = null
     private var fittedTarget: Places.Place? = null
+    private val altLines = ArrayList<Polyline>()
+    private var drawnAlts: Any? = null
+    private var drawnAltIndex = -1
+
+    /** Seçilmeyen rota seçenekleri gri; dokununca o rota seçilir. */
+    private fun drawAlts(m: GoogleMap) {
+        val alts = RouteSession.alts
+        if (alts === drawnAlts && RouteSession.altIndex == drawnAltIndex) return
+        drawnAlts = alts; drawnAltIndex = RouteSession.altIndex
+        altLines.forEach { it.remove() }
+        altLines.clear()
+        alts.forEachIndexed { i, a ->
+            if (i == RouteSession.altIndex) return@forEachIndexed
+            val pl = m.addPolyline(PolylineOptions().addAll(a.line.map { g(it) }).color(0xCC8A96A3.toInt()).width(9 * density / 1.5f).zIndex(0.5f).clickable(true))
+            pl.tag = i
+            altLines.add(pl)
+        }
+    }
     private val corrObjs = ArrayList<Any>()
     private var routeLine: Polyline? = null
     private var startM: Marker? = null
@@ -50,6 +68,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
             m.uiSettings.isTiltGesturesEnabled = false
             m.moveCamera(CameraUpdateFactory.newLatLngZoom(GLatLng(39.0, 35.0), 6f))
             m.setOnCameraMoveStartedListener { r -> if (r == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) onUserPan() }
+            m.setOnPolylineClickListener { pl -> (pl.tag as? Int)?.let { RouteSession.selectAlt(it) } }
             last?.let { (s, v, f) -> update(s, v, f) }
         }
         mv.setOnTouchListener { v, _ -> v.parent?.requestDisallowInterceptTouchEvent(true); false }
@@ -81,6 +100,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
             drawnKey = key
             drawCorridors(m, sim)
         }
+        drawAlts(m)
         val ri = RouteSession.info
         if (ri !== drawnRoute) {
             drawnRoute = ri

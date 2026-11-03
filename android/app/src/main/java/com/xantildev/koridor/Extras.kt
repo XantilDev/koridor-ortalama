@@ -477,3 +477,43 @@ fun TripTypeChip(large: Boolean = true) {
         confirmButton = { TextButton(onClick = { open = false }) { Text("Tamam", fontWeight = FontWeight.Bold) } }
     )
 }
+
+
+/**
+ * Rota seçenekleri (en fazla 3): süre, km, EDS sayısı ve EDS'li km. Dokununca o rota seçilir;
+ * haritada seçilmeyenler gri çizgi olarak görünür.
+ */
+@Composable
+fun RouteChoices(compact: Boolean = false) {
+    val alts = RouteSession.alts
+    if (alts.size < 2) return
+    val fastest = alts.indices.minByOrNull { alts[it].durS }
+    val fewest = alts.indices.minByOrNull { alts[it].corridors.size }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (!compact) Text("${alts.size} rota var · birini seç (haritada gri çizgiye de dokunabilirsin)", color = XMuted, fontSize = 13.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            alts.forEachIndexed { i, a ->
+                val on = i == RouteSession.altIndex
+                val m = (a.durS / 60).roundToInt()
+                Column(
+                    Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(if (on) XBlue.copy(alpha = 0.18f) else XPanel)
+                        .border(if (on) 2.dp else 1.dp, if (on) XBlue else XLine, RoundedCornerShape(14.dp))
+                        .clickable { RouteSession.selectAlt(i) }.padding(horizontal = 10.dp, vertical = if (compact) 6.dp else 9.dp),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    Text("Rota ${"ABC"[i]}" + if (on) " ✓" else "", color = if (on) XBlue else XMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(if (m >= 60) "${m / 60} sa ${m % 60} dk" else "$m dk", color = XFg, fontSize = if (compact) 18.sp else 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text(Geo.fmtKm(a.distM), color = XMuted, fontSize = 13.sp, maxLines = 1)
+                    Text(
+                        if (a.corridors.isEmpty()) "EDS yok" else "${a.corridors.size} EDS · ${String.format(java.util.Locale("tr", "TR"), "%.0f", a.edsKm)} km",
+                        color = if (a.corridors.isEmpty()) XOk else XWarn, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
+                    )
+                    if (!compact) {
+                        val tag = listOfNotNull(if (i == fastest) "en hızlı" else null, if (i == fewest && alts[fewest].corridors.size < alts.maxOf { it.corridors.size }) "en az EDS" else null)
+                        if (tag.isNotEmpty()) Text(tag.joinToString(" · "), color = XBlue, fontSize = 11.sp, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}

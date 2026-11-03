@@ -271,6 +271,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         }
         RouteSession.retryText?.let { NoteBox(it, Warn) }
         if (Firma.enabled) TripTypeChip(large = false)
+        if (s.trip.dist < 5000) RouteChoices()
         ApproachBanner(s, big = false)
         Hud(s) { limitFor = it }
         if (route != null) TripCard(s, route, onGoRoute)
@@ -783,6 +784,7 @@ private fun RouteTab() {
                     color = Muted, fontSize = 13.sp
                 )
                 rs.retryText?.let { Text(it, color = Warn, fontSize = 13.sp) }
+                RouteChoices()
                 val st by Engine.state.collectAsStateWithLifecycle()
                 Button(
                     onClick = {
