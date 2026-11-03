@@ -134,6 +134,58 @@ object RouteSession {
 
     private var ctxApp: Context? = null
 
+    // ---- Rotadan çıkınca yeniden hesaplama ----
+    private var offSince = 0L
+    private var lastReroute = 0L
+    private var reroutes = 0
+    private var rerouting = false
+
+    /**
+     * Sürüşte her konumda çağrılır. Rotaya 150 m'den uzak, en az 10 km/s hızla 15 sn kalınırsa
+     * bulunulan yerden aynı hedefe yeni rota hesaplanır (dakikada en fazla bir, hedef başına en fazla 30 kez).
+     */
+    fun onFix(p: LatLng, kmh: Int?) {
+        val inf = info ?: return
+        if (busy || rerouting || inf.line.size < 2 || reroutes >= 30) return
+        if (Geo.dist(p, inf.target.ll) < 300) { offSince = 0; return }
+        val now = System.currentTimeMillis()
+        if ((kmh ?: 0) < 10 || Geo.distToLine(p, inf.line) < 150) { offSince = 0; return }
+        if (offSince == 0L) { offSince = now; return }
+        if (now - offSince < 15_000 || now - lastReroute < 60_000) return
+        reroute(inf, p)
+    }
+
+    private fun reroute(inf: Info, here: LatLng) {
+        rerouting = true
+        lastReroute = System.currentTimeMillis()
+        retryText = "Rotadan çıkıldı, yeni rota hesaplanıyor…"
+        scope.launch {
+            val p = inf.target
+            val road = try {
+                if (GoogleApi.enabled) GoogleApi.route(here, p.ll) else osrm(here, p.ll)
+            } catch (_: Exception) {
+                try { osrm(here, p.ll) } catch (_: Exception) { null }
+            }
+            rerouting = false
+            offSince = 0
+            retryText = null
+            if (road == null || info?.target != p) return@launch
+            reroutes++
+            val line = road.first
+            // Yeni yoldaki koridorlar: telefonda kayıtlı olanlardan hemen; trafik.gov.tr'den arkada tamamlanır
+            val near = CorridorStore.all().filter { Geo.distToLine(it.from, line) < 400 && Geo.distToLine(it.to, line) < 400 }
+            val fresh = Info(p, near, line, road.second, road.third, here, inf.startLabel, inf.targetLabel, "yol", false)
+            info = fresh
+            val eta = java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr", "TR")).format(java.util.Date(System.currentTimeMillis() + (road.third * 1000).toLong()))
+            Engine.say("Rota yeniden hesaplandı. Kalan ${Geo.km1(road.second)} kilometre, varış $eta.")
+            try {
+                val (list, a, b) = fetchCorridors(here, p, line)
+                if (info === fresh) info = fresh.withCorridors((list + near).distinctBy { it.key }, a, b)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     fun search(ctx: Context) {
         val text = query.trim()
         if (text.isEmpty() || busy) return
@@ -158,6 +210,7 @@ object RouteSession {
     fun go(ctx: Context, p: Places.Place) {
         if (busy) return
         ctxApp = ctx.applicationContext
+        offSince = 0; reroutes = 0
         // Yeni hedef: eski sürüş kaydedilip bitirilir, yenisi sıfırdan başlar (hedef değişmeden önce, eski hedefle kaydedilsin)
         if (Engine.tracking && info?.target != p) Engine.newTrip()
         else if (!Engine.tracking && hasLocation(ctx)) TrackingService.start(ctx)   // hedef seçilince sürüş başlar

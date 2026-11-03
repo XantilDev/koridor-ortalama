@@ -28,6 +28,7 @@ class MapHolder(ctx: Context) : LiveMapView {
     private val trail = Polyline(map)
     private val routeLine = Polyline(map)
     private var drawnRoute: RouteSession.Info? = null
+    private var fittedTarget: Places.Place? = null
     private val startMark = Marker(map)
     private val endMark = Marker(map)
     private val you = Marker(map)
@@ -93,7 +94,7 @@ class MapHolder(ctx: Context) : LiveMapView {
                 endMark.snippet = ri.targetLabel
                 map.overlays.add(startMark)
                 map.overlays.add(endMark)
-                fitWhenReady(org.osmdroid.util.BoundingBox.fromGeoPoints(pts), 0)
+                if (fittedTarget != ri.target) { fittedTarget = ri.target; fitWhenReady(org.osmdroid.util.BoundingBox.fromGeoPoints(pts), 0) }
             }
         }
         if (s.track.size != lastTrackSize) {

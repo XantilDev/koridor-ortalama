@@ -475,6 +475,7 @@ object Engine {
         if (lastFull == null || Geo.dist(lastFull, f.ll) > 25) fullTrack.add(f.ll)
         checkpoint()
         checkArrival(f.ll)
+        if (mode == "gps") RouteSession.onFix(f.ll, speedKmh)
         if (run == null) checkRoadLimit(f.ll)
 
         val r = run

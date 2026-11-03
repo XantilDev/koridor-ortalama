@@ -29,6 +29,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
     private var last: Triple<UiState, Int, Boolean>? = null
     private var drawnKey = -1
     private var drawnRoute: RouteSession.Info? = null
+    private var fittedTarget: Places.Place? = null
     private val corrObjs = ArrayList<Any>()
     private var routeLine: Polyline? = null
     private var startM: Marker? = null
@@ -91,7 +92,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
                 endM = m.addMarker(MarkerOptions().position(g(ri.target.ll)).icon(dot(0xFF4DA3FF.toInt(), 0xFFFFFFFF.toInt(), 18)).anchor(0.5f, 0.5f).title("Hedef: " + ri.target.name).snippet(ri.targetLabel))
                 val bb = LatLngBounds.builder()
                 ri.line.forEach { bb.include(g(it)) }
-                fit(m, bb.build(), 0)
+                if (fittedTarget != ri.target) { fittedTarget = ri.target; fit(m, bb.build(), 0) }
             }
         }
         if (s.track.size != lastTrackSize) {
