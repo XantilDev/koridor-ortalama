@@ -252,10 +252,29 @@ object Firma {
             .put("p_hedef", r.target ?: JSONObject.NULL)
             .put("p_koridor", r.passes.size)
             .put("p_asim", r.passes.count { p -> p.limit != null && p.avg > p.limit })
+            .put("p_iz", simplify(r.track).takeIf { it.size >= 2 }?.let { GoogleApi.encode(it) } ?: JSONObject.NULL)
+            .put("p_koridorlar", JSONArray().apply {
+                r.passes.forEach { p ->
+                    put(JSONObject().put("ad", p.name).put("ort", p.avg.roundToInt()).put("limit", p.limit ?: JSONObject.NULL)
+                        .put("sure", p.durationS.roundToInt()).put("bekleme", p.stopS.roundToInt()).put("km", Math.round(p.lengthM / 100) / 10.0))
+                }
+            })
+            .put("p_ortalama", r.avg?.roundToInt() ?: JSONObject.NULL)
+            .put("p_hareket_ort", r.moveAvg?.roundToInt() ?: JSONObject.NULL)
         scope.launch(Dispatchers.IO) {
             val err = runCatching { rpc("yolculuk_ekle", body) }.exceptionOrNull()
             if (err != null) withContext(Dispatchers.Main) { status = "Yolculuk rapora işlenemedi: ${err.message}" }
         }
+    }
+
+    /** İzi seyrelt: noktalar arası en az 60 m, en fazla 2.000 nokta (sunucuya küçük gitsin). */
+    private fun simplify(t: List<LatLng>): List<LatLng> {
+        val out = ArrayList<LatLng>()
+        for (p in t) if (out.isEmpty() || Geo.dist(out.last(), p) >= 60) out.add(p)
+        t.lastOrNull()?.let { if (out.lastOrNull() != it) out.add(it) }
+        if (out.size <= 2000) return out
+        val step = out.size / 2000.0
+        return (0 until 2000).map { out[(it * step).toInt()] } + out.last()
     }
 
     /** İş yolculuğundan AYSOFT Personel saha kaydı; hata varsa mesajını döner. */

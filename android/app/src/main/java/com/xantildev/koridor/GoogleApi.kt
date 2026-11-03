@@ -113,6 +113,23 @@ object GoogleApi {
         out
     }
 
+    /** Google'ın kodlanmış çizgi biçimine çevirir (yolculuk izini yönetici paneline göndermek için). */
+    fun encode(pts: List<LatLng>): String {
+        val sb = StringBuilder()
+        var pLat = 0; var pLng = 0
+        fun put(v: Int) {
+            var x = if (v < 0) (v shl 1).inv() else v shl 1
+            while (x >= 0x20) { sb.append(((0x20 or (x and 0x1f)) + 63).toChar()); x = x shr 5 }
+            sb.append((x + 63).toChar())
+        }
+        for (p in pts) {
+            val lat = Math.round(p.lat * 1e5).toInt(); val lng = Math.round(p.lon * 1e5).toInt()
+            put(lat - pLat); put(lng - pLng)
+            pLat = lat; pLng = lng
+        }
+        return sb.toString()
+    }
+
     /** Google'ın kodlanmış çizgi biçimini çözer. */
     fun decode(s: String): List<LatLng> {
         val out = ArrayList<LatLng>()
