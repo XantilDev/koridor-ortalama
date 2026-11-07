@@ -57,6 +57,10 @@ class MapHolder(ctx: Context) : LiveMapView {
     private val corr = FolderOverlay()
     private var drawnKey = -1
     private var hasFix = false
+    override var navMode = false
+    override var rightInsetPx = 0
+    private val heading = HeadingTracker()
+    private var arrowOn = false
     private var lastTrackSize = -1
 
     init {
@@ -127,11 +131,22 @@ class MapHolder(ctx: Context) : LiveMapView {
         val p = s.pos
         if (p != null) {
             val gp = GeoPoint(p.lat, p.lon)
+            val h = heading.feed(p, s.speedKmh)
+            val nav = navMode && AppSettings.headingUp && s.driving
             you.position = gp
+            if (h != null && !arrowOn) {
+                arrowOn = true
+                you.icon = android.graphics.drawable.BitmapDrawable(map.resources, arrowBitmap(map.resources.displayMetrics.density))
+                you.isFlat = true
+            }
+            if (h != null) you.rotation = -h
             if (!map.overlays.contains(you)) map.overlays.add(you)
+            // Navigasyon: gidiş yönü yukarıda, araç ekranın alt kısmında ve sağ panelin solunda
+            map.setMapCenterOffset(-rightInsetPx / 2, if (nav) (map.height * 0.2f).toInt() else 0)
+            map.mapOrientation = if (nav) (h?.let { -it } ?: map.mapOrientation) else 0f
             if (!hasFix) {
                 hasFix = true
-                map.controller.setZoom(15.0)
+                map.controller.setZoom(if (nav) 17.0 else 15.0)
                 map.controller.setCenter(gp)
             } else if (follow) {
                 map.controller.setCenter(gp)

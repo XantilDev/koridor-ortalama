@@ -514,3 +514,55 @@ fun RouteChoices(compact: Boolean = false) {
         }
     }
 }
+
+
+/** Hızlı ayarlar (sürüş ekranındaki ⚙): harita yönü, harita, araç, sürücü/yolculuk tipi, ses, gece, gösterge. */
+@Composable
+fun QuickSettings(onClose: () -> Unit, onAll: () -> Unit) {
+    val ctx = LocalContext.current
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 640.dp).clip(RoundedCornerShape(22.dp)).background(XBg).border(1.dp, XLine, RoundedCornerShape(22.dp))
+                .verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("⚙ Ayarlar", color = XFg, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("✕", color = XFg, fontSize = 22.sp, modifier = Modifier.clip(CircleShape).clickable { onClose() }.padding(8.dp))
+            }
+            Text("Harita yönü", color = XFg, fontWeight = FontWeight.SemiBold)
+            Segments(listOf("yon" to "🚗 Gidiş yönü yukarı", "kuzey" to "🧭 Kuzey yukarı"), if (AppSettings.headingUp) "yon" else "kuzey", 46, 15) {
+                AppSettings.chooseHeadingUp(it == "yon")
+            }
+            if (GoogleApi.enabled) {
+                Text("Harita", color = XFg, fontWeight = FontWeight.SemiBold)
+                Segments(listOf("google" to "Google", "osm" to "OpenStreetMap"), AppSettings.mapProvider, 46, 15) { AppSettings.chooseMap(it) }
+            }
+            Text("Araç", color = XFg, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                VehicleStore.vehicles.forEach { v ->
+                    val on = v.id == VehicleStore.activeId
+                    Text((if (v.type.commercial) "🚐 " else "🚗 ") + v.name, color = if (on) XBg else XFg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(if (on) XFg else XPanel)
+                            .border(1.dp, XLine, RoundedCornerShape(99.dp)).clickable { VehicleStore.select(v.id) }
+                            .padding(horizontal = 14.dp, vertical = 10.dp))
+                }
+            }
+            VehicleTypeSwitch(44, 14)
+            if (Firma.enabled) {
+                Text("Yolculuk / sürücü", color = XFg, fontWeight = FontWeight.SemiBold)
+                TripTypeSwitch(44, 14)
+            }
+            Text("Sesli bildirim", color = XFg, fontWeight = FontWeight.SemiBold)
+            Segments(listOf("0" to "Her şey", "1" to "Sadece koridor", "2" to "Kapalı"), AppSettings.voiceLevel.toString(), 44, 14) { AppSettings.setVoice(it.toInt()) }
+            Text("Gece modu", color = XFg, fontWeight = FontWeight.SemiBold)
+            Segments(listOf("oto" to "Otomatik", "acik" to "Açık", "kapali" to "Kapalı"), AppSettings.night, 44, 14) { AppSettings.chooseNight(it) }
+            Text("Her ekranda küçük gösterge", color = XFg, fontWeight = FontWeight.SemiBold)
+            Segments(listOf("acik" to "Açık", "kapali" to "Kapalı"), if (AppSettings.overlay) "acik" else "kapali", 44, 14) {
+                AppSettings.chooseOverlay(it == "acik")
+                if (it == "acik" && !Overlay.allowed(ctx)) Power.requestOverlay(ctx)
+            }
+            OutlinedButton(onClick = onAll, modifier = Modifier.fillMaxWidth()) { Text("Tüm ayarlar · garaj · firma · yolculuklar", color = XFg) }
+        }
+    }
+}

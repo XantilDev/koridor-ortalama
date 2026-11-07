@@ -546,11 +546,13 @@ private fun WhatIf(s: UiState, onSetLimit: (Corridor) -> Unit) {
 }
 
 @Composable
-internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false, controlsLeft: Boolean = false) {
+internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false, controlsLeft: Boolean = false, nav: Boolean = false, rightInset: androidx.compose.ui.unit.Dp = 0.dp) {
     val ctx = LocalContext.current
     val holder = remember(AppSettings.mapProvider) { MapChoice.create(ctx) }
     var follow by remember { mutableStateOf(true) }
     holder.onUserPan = { follow = false }
+    holder.navMode = nav
+    holder.rightInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { rightInset.roundToPx() }
     Box(Modifier.fillMaxSize()) {
         key(holder) { AndroidView(factory = { holder.view }, modifier = Modifier.fillMaxSize(), update = { holder.update(s, ver, follow) }) }
         if (controls) {

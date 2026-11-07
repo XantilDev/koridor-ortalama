@@ -35,8 +35,14 @@ object AppSettings {
         voiceLevel = prefs.getInt("ses", 0)
         night = prefs.getString("gece", "oto") ?: "oto"
         overlay = prefs.getBoolean("gosterge", true)
+        headingUp = prefs.getBoolean("yon_yukari", true)
         loadMap()
     }
+
+    /** Haritada gidiş yönü yukarıda (navigasyon gibi); kapalıysa kuzey yukarıda. */
+    var headingUp by mutableStateOf(true)
+        private set
+    fun chooseHeadingUp(v: Boolean) { headingUp = v; prefs.edit().putBoolean("yon_yukari", v).apply() }
 
     fun chooseOverlay(v: Boolean) { overlay = v; prefs.edit().putBoolean("gosterge", v).apply() }
 

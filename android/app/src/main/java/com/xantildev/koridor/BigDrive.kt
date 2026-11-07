@@ -91,6 +91,8 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
         .filter { Geo.dist(pos, it.from) > 50 }.minByOrNull { Geo.dist(pos, it.from) }
         ?.let { CorridorStore.withOverride(it) }
     var detail by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var settings by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (settings) QuickSettings(onClose = { settings = false }, onAll = { settings = false; onClose() })
 
     val screenW = cfg.screenWidthDp.dp
     val screenH = cfg.screenHeightDp.dp
@@ -103,7 +105,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
 
     Box(Modifier.fillMaxSize().background(BBg)) {
         // ---- Harita: bütün ekran ----
-        LiveMap(s, ver, controls = true, controlsLeft = true)
+        LiveMap(s, ver, controls = true, controlsLeft = true, nav = true, rightInset = panelW)
 
         // ---- Haritanın üstü (sol): yaklaşma, koridor durumu, rota seçenekleri ----
         val freeW = screenW - panelW - 28.dp
@@ -143,9 +145,10 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
             .clip(RoundedCornerShape(22.dp)).background(BGlass).border(1.dp, BLine, RoundedCornerShape(22.dp))
         if (!s.driving) {
             StandbyPanel(s, voice, onClose, panelMod.padding(12.dp))
+            GearButton(Modifier.align(Alignment.TopStart).padding(10.dp)) { settings = true }
             return@Box
         }
-        SidePanel(s, inC, c, lim, avg, col, next, wide, panelW, voice, detail, { detail = !detail }, panelMod)
+        SidePanel(s, inC, c, lim, avg, col, next, wide, panelW, voice, detail, { detail = !detail }, { settings = true }, panelMod)
 
         // ---- Detay kartı (panelin solunda) ----
         if (detail) {
@@ -163,7 +166,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
 @Composable
 private fun SidePanel(
     s: UiState, inC: Boolean, c: Corridor?, lim: Int?, avg: Double?, col: Color, next: Corridor?,
-    wide: Boolean, panelW: androidx.compose.ui.unit.Dp, voice: () -> Unit, detail: Boolean, onDetail: () -> Unit, modifier: Modifier
+    wide: Boolean, panelW: androidx.compose.ui.unit.Dp, voice: () -> Unit, detail: Boolean, onDetail: () -> Unit, onSettings: () -> Unit, modifier: Modifier
 ) {
     val ctx = LocalContext.current
     val roomy = panelW >= 170.dp
@@ -172,6 +175,7 @@ private fun SidePanel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(if (roomy) 10.dp else 8.dp)
     ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { GearButton(Modifier) { onSettings() } }
         Text(
             when {
                 inC && s.partial -> "ORTALAMA\n(BURADAN)"
@@ -259,6 +263,14 @@ private fun SpeedBox(sp: Int?, lim: Int?, roomy: Boolean, m: Modifier) {
 private fun etaText(sec: Double): String {
     val m = (sec / 60).roundToInt()
     return if (m >= 60) "${m / 60} sa ${m % 60} dk" else "$m dk"
+}
+
+@Composable
+private fun GearButton(modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier.size(46.dp).clip(CircleShape).background(BPanel).border(1.dp, BLine, CircleShape).clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) { Text("⚙", color = BFg, fontSize = 24.sp) }
 }
 
 @Composable

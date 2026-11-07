@@ -55,6 +55,13 @@ class GMapHolder(ctx: Context) : LiveMapView {
     private var trail: Polyline? = null
     private var you: Marker? = null
     private var hasFix = false
+    override var navMode = false
+    override var rightInsetPx = 0
+    private val heading = HeadingTracker()
+    private var arrowOn = false
+    private var padKey = ""
+    private var lastCam: GLatLng? = null
+    private var lastH: Float? = null
     private var lastTrackSize = -1
     private var night: Boolean? = null
     private val density = ctx.resources.displayMetrics.density
@@ -124,13 +131,36 @@ class GMapHolder(ctx: Context) : LiveMapView {
         val p = s.pos
         if (p != null) {
             val gp = g(p)
+            val h = heading.feed(p, s.speedKmh)
+            val nav = navMode && AppSettings.headingUp && s.driving
             val y = you ?: m.addMarker(MarkerOptions().position(gp).icon(dot(0xFFF2B632.toInt(), 0xFFFFFFFF.toInt(), 18)).anchor(0.5f, 0.5f).zIndex(5f)).also { you = it }
             y?.position = gp
+            if (h != null && !arrowOn) {
+                arrowOn = true
+                y?.setIcon(BitmapDescriptorFactory.fromBitmap(arrowBitmap(density)))
+                y?.isFlat = true
+            }
+            if (h != null) y?.rotation = h
+            // Navigasyon görünümü: araç ekranın altına yakın, sağ panelin altında kalmasın
+            val pk = "$nav/$rightInsetPx/${mv.height}"
+            if (pk != padKey) {
+                padKey = pk
+                m.setPadding(0, if (nav) (mv.height * 0.4f).toInt() else 0, rightInsetPx, 0)
+            }
             if (!hasFix) {
                 hasFix = true
-                m.moveCamera(CameraUpdateFactory.newLatLngZoom(gp, 15f))
+                m.moveCamera(CameraUpdateFactory.newLatLngZoom(gp, if (nav) 16.5f else 15f))
+            } else if (follow && nav && (gp != lastCam || h != lastH)) {
+                lastCam = gp; lastH = h
+                val z = m.cameraPosition.zoom.let { if (it < 12f) 16.5f else it }
+                m.animateCamera(CameraUpdateFactory.newCameraPosition(
+                    com.google.android.gms.maps.model.CameraPosition.Builder().target(gp).zoom(z).bearing(h ?: m.cameraPosition.bearing).tilt(45f).build()
+                ), 900, null)
             } else if (follow) {
-                m.moveCamera(CameraUpdateFactory.newLatLng(gp))
+                if (m.cameraPosition.bearing != 0f || m.cameraPosition.tilt != 0f) {
+                    m.moveCamera(CameraUpdateFactory.newCameraPosition(
+                        com.google.android.gms.maps.model.CameraPosition.Builder().target(gp).zoom(m.cameraPosition.zoom).bearing(0f).tilt(0f).build()))
+                } else m.moveCamera(CameraUpdateFactory.newLatLng(gp))
             }
         } else {
             you?.remove(); you = null
@@ -172,7 +202,10 @@ class GMapHolder(ctx: Context) : LiveMapView {
     override fun recenter(s: UiState) {
         val p = s.pos ?: return
         val m = gm ?: return
-        m.moveCamera(CameraUpdateFactory.newLatLngZoom(g(p), maxOf(m.cameraPosition.zoom, 15f)))
+        val nav = navMode && AppSettings.headingUp && s.driving
+        m.moveCamera(CameraUpdateFactory.newCameraPosition(
+            com.google.android.gms.maps.model.CameraPosition.Builder().target(g(p)).zoom(maxOf(m.cameraPosition.zoom, if (nav) 16.5f else 15f))
+                .bearing(if (nav) heading.deg ?: 0f else 0f).tilt(if (nav) 45f else 0f).build()))
     }
 
     override fun zoomIn() { gm?.animateCamera(CameraUpdateFactory.zoomIn()) }
