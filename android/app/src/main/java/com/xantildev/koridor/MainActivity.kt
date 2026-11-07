@@ -270,6 +270,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
             if (s.driving) OutlinedButton(onClick = { Nav.big = true }, modifier = Modifier.weight(1f).height(52.dp)) { Text("Büyük ekran", color = Fg, fontSize = 17.sp) }
         }
         RouteSession.retryText?.let { NoteBox(it, Warn) }
+        if (route != null) RouteSession.enforcement?.text?.let { NoteBox("🚓 $it (EGM yeri açıklamıyor; anlık sayı)", Accent) }
         if (Firma.enabled) TripTypeChip(large = false)
         if (s.trip.dist < 5000) RouteChoices()
         ApproachBanner(s, big = false)
@@ -307,6 +308,15 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         SettingsCard()
         FirmaCard()
         ExitInfo.last?.let { Text(it, color = Muted, fontSize = 12.sp) }
+        TrafikApi.lastEnforcement?.let { e ->
+            Text("Son rota yanıtındaki alanlar: ${e.fields.ifBlank { "—" }}", color = Muted, fontSize = 12.sp)
+        }
+        TrafikApi.lastRaw?.let { raw ->
+            OutlinedButton(onClick = {
+                val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, raw)
+                ctx.startActivity(Intent.createChooser(i, "Son EGM rota yanıtını paylaş"))
+            }) { Text("Son EGM rota yanıtını paylaş", color = Fg) }
+        }
         Text(
             "Zaman payı, ortalamanı limitte tutman için elinde kalan saniyedir. Ölçüm GPS'e dayanır, resmi cihazla birebir aynı olmayabilir; levhalar ve yasal limit esastır.",
             color = Muted, fontSize = 13.sp

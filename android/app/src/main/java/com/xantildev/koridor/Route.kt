@@ -27,6 +27,9 @@ object Nav {
 
 /** Seçili hedef ve rota bilgisi. Uygulama açık olduğu sürece sekmeler arasında korunur. */
 object RouteSession {
+    /** trafik.gov.tr'nin bu rota için verdiği trafik uygulaması sayıları (konum vermez). */
+    var enforcement by mutableStateOf<TrafikApi.Enforcement?>(null)
+
     class Info(
         val target: Places.Place,
         val corridors: List<Corridor>,
@@ -276,8 +279,10 @@ object RouteSession {
             var err: String? = null
             var startLabel = "konumun"
             var targetLabel = p.name
+            enforcement = null
             try {
                 val (all, a, b) = fetchAll(here, p)
+                enforcement = TrafikApi.lastEnforcement
                 val used = all.filter { c -> roads.isEmpty() || roads.any { onLine(c, it.first) } }
                 CorridorStore.addRoute(used)
                 pool = used
@@ -305,6 +310,7 @@ object RouteSession {
                 Engine.say(
                     (if (corridors.isEmpty()) "${p.name} rotası hazır. Rotada kayıtlı ortalama hız koridoru yok."
                     else "${p.name} rotası hazır. Rotanızda ${corridors.size} ortalama hız koridoru var.") +
+                        (enforcement?.text?.let { " $it" } ?: "") +
                         if (alts.size > 1) " ${alts.size} farklı rota var, ekrandan seçebilirsin." else ""
                 )
             }

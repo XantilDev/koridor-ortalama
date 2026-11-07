@@ -79,6 +79,8 @@ object TrafikApi {
                 else m.ifBlank { "Servis hata verdi" }
             )
         }
+        lastRaw = o.toString().take(200_000)
+        lastEnforcement = try { enforcement(o) } catch (_: Exception) { null }
         val data = o.optJSONObject("data") ?: return@withContext emptyList()
         val arr = data.optJSONArray("SpeedTunnels") ?: JSONArray()
         val out = ArrayList<Corridor>()
@@ -107,6 +109,60 @@ object TrafikApi {
             }
         }
         out
+    }
+
+    /** Son CreateRoute yanıtı (Ayrıntılar'dan paylaşılabilir; alan adlarını görmek için). */
+    @Volatile var lastRaw: String? = null
+    @Volatile var lastEnforcement: Enforcement? = null
+
+    /** Rotadaki trafik uygulamaları: sayılar (radarlı/radarsız) ve varsa koordinatlı noktalar. */
+    class Enforcement(val radar: Int?, val other: Int?, val points: List<LatLng>, val fields: String) {
+        val text: String?
+            get() = when {
+                radar != null && other != null -> "Rotada $radar radarlı, $other radarsız trafik uygulaması var."
+                radar != null -> "Rotada $radar radarlı trafik uygulaması var."
+                other != null -> "Rotada $other trafik uygulaması var."
+                points.isNotEmpty() -> "Rotada ${points.size} trafik uygulama noktası var."
+                else -> null
+            }
+    }
+
+    /** Alan adları yayınlanmadığı için yanıt genel olarak taranır: SpeedTunnels dışındaki sayılar ve diziler. */
+    private fun enforcement(o: JSONObject): Enforcement {
+        val nums = LinkedHashMap<String, Int>()
+        val arrs = LinkedHashMap<String, JSONArray>()
+        fun walk(x: JSONObject, prefix: String, depth: Int) {
+            for (k in x.keys()) {
+                if (k == "SpeedTunnels") continue
+                val v = x.opt(k)
+                val key = prefix + k
+                when (v) {
+                    is Int -> nums[key] = v
+                    is Long -> nums[key] = v.toInt()
+                    is String -> v.trim().toIntOrNull()?.let { if (k.contains("count", true) || k.contains("say", true)) nums[key] = it }
+                    is JSONArray -> arrs[key] = v
+                    is JSONObject -> if (depth < 3) walk(v, "$key.", depth + 1)
+                }
+            }
+        }
+        walk(o, "", 0)
+        fun lc(k: String) = k.lowercase().replace("ı", "i")
+        fun isOther(k: String) = lc(k).let { it.contains("radarsiz") || it.contains("nonradar") || it.contains("withoutradar") || it.contains("noradar") || it.contains("other") }
+        fun isRadar(k: String) = lc(k).contains("radar") && !isOther(k)
+        var radar = nums.entries.firstOrNull { isRadar(it.key) }?.value
+        var other = nums.entries.firstOrNull { isOther(it.key) }?.value
+        if (radar == null) radar = arrs.entries.firstOrNull { isRadar(it.key) }?.value?.length()
+        if (other == null) other = arrs.entries.firstOrNull { isOther(it.key) }?.value?.length()
+        // Koordinatlı noktalar (dizilerde enlem/boylam alanı varsa)
+        val pts = ArrayList<LatLng>()
+        for ((_, a) in arrs) for (i in 0 until a.length()) {
+            val e = a.optJSONObject(i) ?: continue
+            val lat = listOf("latitude", "lat", "latY", "y", "Latitude", "Lat").firstNotNullOfOrNull { k -> e.opt(k)?.toString()?.toDoubleOrNull() }
+            val lon = listOf("longitude", "lon", "lng", "lonX", "x", "Longitude", "Lon").firstNotNullOfOrNull { k -> e.opt(k)?.toString()?.toDoubleOrNull() }
+            if (lat != null && lon != null && lat in 35.0..43.0 && lon in 25.0..46.0) pts.add(LatLng(lat, lon))
+        }
+        val fields = (nums.map { "${it.key}=${it.value}" } + arrs.map { "${it.key}[${it.value.length()}]" }).joinToString(", ")
+        return Enforcement(radar, other, pts, fields)
     }
 
     /** OpenStreetMap'te bu noktadaki yolun kayıtlı limiti (varsa). */
