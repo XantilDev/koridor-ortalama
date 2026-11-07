@@ -546,7 +546,7 @@ private fun WhatIf(s: UiState, onSetLimit: (Corridor) -> Unit) {
 }
 
 @Composable
-internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false) {
+internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false, controlsLeft: Boolean = false) {
     val ctx = LocalContext.current
     val holder = remember(AppSettings.mapProvider) { MapChoice.create(ctx) }
     var follow by remember { mutableStateOf(true) }
@@ -554,7 +554,7 @@ internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false) {
     Box(Modifier.fillMaxSize()) {
         key(holder) { AndroidView(factory = { holder.view }, modifier = Modifier.fillMaxSize(), update = { holder.update(s, ver, follow) }) }
         if (controls) {
-            Column(Modifier.align(Alignment.TopEnd).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.align(if (controlsLeft) Alignment.CenterStart else Alignment.TopEnd).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("+" to { holder.zoomIn() }, "−" to { holder.zoomOut() }, "◎" to { follow = true; holder.recenter(s) })
                     .forEach { (t, f) ->
                         Box(
@@ -1148,7 +1148,30 @@ private fun VehicleCard(s: UiState, onEdit: () -> Unit) {
                 color = Muted, fontSize = 12.sp
             )
         }
-        OutlinedButton(onClick = onEdit) { Text("Araçları düzenle / değiştir", color = Fg) }
+        OutlinedButton(onClick = onEdit) { Text("🚗 Garajım · araç ekle / değiştir", color = Fg) }
+    }
+}
+
+/** Garaj: araç başına yolculuk sayısı, km, ortalama ve limit aşılan koridor sayısı (bu telefondaki kayıtlardan). */
+@Composable
+private fun GarageStats(v: Vehicle) {
+    val list = TripStore.trips.filter { !it.sample && it.vehicleName == v.name && it.plate == v.plate }
+    val dist = list.sumOf { it.distM }
+    val time = list.sumOf { it.timeS }
+    val avg = if (time > 10) dist / time * 3.6 else null
+    val over = list.sumOf { t -> t.passes.count { p -> p.limit != null && p.avg > p.limit } }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        listOf(
+            list.size.toString() to "Sürüş",
+            (dist / 1000).roundToInt().toString() to "km",
+            (avg?.roundToInt()?.toString() ?: "—") to "Ort. km/s",
+            over.toString() to "İhlal"
+        ).forEach { (n, k) ->
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(n, color = if (k == "İhlal" && over > 0) Over else Fg, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Text(k, color = Muted, fontSize = 11.sp)
+            }
+        }
     }
 }
 
@@ -1162,7 +1185,7 @@ private fun VehicleDialog(onClose: () -> Unit) {
     var km by remember(editing.id) { mutableStateOf(if (editing.odoKm > 0) String.format(java.util.Locale.US, "%.0f", editing.odoKm) else "") }
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("Araçlarım") },
+        title = { Text("Garajım") },
         text = {
             Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 VehicleStore.vehicles.forEach { v ->
@@ -1173,10 +1196,12 @@ private fun VehicleDialog(onClose: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(v.name + if (v.id == VehicleStore.activeId) " · aktif" else "", color = Fg, fontWeight = FontWeight.SemiBold)
+                            Text((if (v.type.commercial) "🚐 " else "🚗 ") + v.name + if (v.id == VehicleStore.activeId) " · aktif" else "", color = Fg, fontWeight = FontWeight.SemiBold)
                             Text("${v.plate.ifBlank { "plakasız" }} · ${v.type.label}" + if (Firma.enabled) (if (v.company) " · 💼 şirket aracı" else " · 🔒 şahsi araç") else "", color = Muted, fontSize = 12.sp)
                         }
+                        if (v.id != VehicleStore.activeId) OutlinedButton(onClick = { VehicleStore.select(v.id); editing = v }) { Text("Seç", color = Fg) }
                     }
+                    GarageStats(v)
                 }
                 TextButton(onClick = {
                     val nv = Vehicle("v" + System.currentTimeMillis(), "Yeni araç", "", VehicleType.OTO, 0.0)

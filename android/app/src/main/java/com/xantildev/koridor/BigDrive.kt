@@ -27,6 +27,11 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,146 +54,17 @@ private val BOk = Color(0xFF2FBF71)
 private val BWarn = Color(0xFFF2B632)
 private val BOver = Color(0xFFFF5A4F)
 
-/** Telefon tutucuda uzaktan okunacak tam ekran sürüş görünümü. Yatay ekranda (araç tableti) haritalı düzen. */
+private val BBlue = Color(0xFF4C8DFF)
+private val BGlass = Color(0xF00D1214)
+
+/**
+ * Sürüş ekranı (dikey ve yatay): harita bütün ekranı kaplar, sağ kenarda ince bir bilgi paneli durur
+ * (ortalama, limit, anlık hız, kalan). "Detay" ile panelin yanında tahmin ve ayrıntı kartı açılır.
+ */
 @Composable
 fun BigDrive(s: UiState, onClose: () -> Unit) {
     val cfg = androidx.compose.ui.platform.LocalConfiguration.current
-    if (cfg.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-        BigDriveWide(s, onClose)
-        return
-    }
-    val ctx = LocalContext.current
-    val voice = rememberVoice()
-    val c = s.corridor
-    val inC = s.confirmed && c != null
-    val lim = if (inC) c?.limit else null
-    val avg = if (inC) s.avg else s.tripAvg
-    val col = when {
-        avg == null -> BMuted
-        !inC || lim == null -> BFg
-        avg > lim -> BOver
-        avg > lim * 0.95 -> BWarn
-        else -> BOk
-    }
-    val title = when {
-        inC -> (c?.name ?: "") + if (s.partial) " · kısmi ölçüm" else ""
-        c != null -> "Koridor girişi · yön doğrulanıyor"
-        s.driving -> "Serbest sürüş · koridor yok"
-        else -> "Sürüş başlamadı"
-    }
-    Column(
-        Modifier.fillMaxSize().background(BBg).padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = BFg, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 2,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Button(
-                onClick = onClose,
-                colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg),
-                modifier = Modifier.height(44.dp)
-            ) { Text("Ayrıntılar", fontSize = 15.sp) }
-        }
-        if (Firma.enabled) TripTypeChip()
-        if (s.trip.dist < 5000) RouteChoices(compact = true)
-        ApproachBanner(s)
-        // Büyük ortalama
-        Box(
-            Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(20.dp)).background(BPanel)
-                .border(2.dp, if (inC) col else BLine, RoundedCornerShape(20.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (inC) (if (s.partial) "ORTALAMA (BURADAN İTİBAREN)" else "KORİDOR ORTALAMASI") else "YOLCULUK ORTALAMASI",
-                    color = BMuted, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
-                Text(avg?.roundToInt()?.toString() ?: "—", color = col, fontSize = 150.sp, lineHeight = 150.sp, fontWeight = FontWeight.Bold)
-                Text("km/s", color = BMuted, fontSize = 22.sp)
-            }
-        }
-        // Limit tabelası + anlık hız
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (lim == null && s.roadLimit != null) RoadLimitSign(s, 120) else Box(
-                Modifier.size(132.dp).clip(CircleShape).background(if (lim != null) Color.White else BPanel)
-                    .border(15.dp, if (lim != null) BRed else BLine, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(lim?.toString() ?: "—", color = if (lim != null) Color(0xFF111111) else BMuted, fontSize = 50.sp, fontWeight = FontWeight.Bold)
-            }
-            Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(18.dp)).padding(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("ANLIK HIZ", color = BMuted, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                val sp = s.speedKmh
-                Text(sp?.toString() ?: "—", fontSize = 76.sp, lineHeight = 78.sp, fontWeight = FontWeight.Bold,
-                    color = if (sp != null && lim != null && sp > lim) BOver else BFg)
-            }
-        }
-        if (inC) {
-            LinearProgressIndicator(
-                progress = { s.progress },
-                modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
-                color = BWarn, trackColor = BLine
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                BigCell("KALAN", Geo.fmtKm(s.remaining), null, Modifier.weight(1f))
-                BigCell("ZAMAN PAYI", s.slack?.let { Geo.fmtSlack(it) } ?: "—", s.slack?.let { if (it >= 0) BOk else BOver }, Modifier.weight(1f))
-            }
-            BigCell("KALAN İÇİN EN FAZLA ORTALAMA", s.maxAvgLeft, null, Modifier.fillMaxWidth())
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                BigCell("MESAFE", Geo.fmtKm(s.trip.dist), null, Modifier.weight(1f))
-                BigCell("SÜRE", Geo.fmtT(s.trip.time), null, Modifier.weight(1f))
-            }
-        }
-        (s.arrived?.let { "Hedefe vardın: $it" } ?: s.approach ?: s.note)?.let {
-            Text(it, color = BWarn, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-                maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
-        }
-        // Büyük düğmeler
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(
-                onClick = voice,
-                modifier = Modifier.weight(1f).height(76.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)
-            ) { Text("🎤 Konuş", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
-            if (!s.driving) {
-                Button(
-                    onClick = {
-                        if (hasLocation(ctx)) {
-                            TrackingService.start(ctx)
-                            if (!locationOn(ctx)) ctx.startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                        }
-                    },
-                    modifier = Modifier.weight(1.4f).height(76.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BOk, contentColor = Color(0xFF06140C))
-                ) { Text("Sürüşü başlat", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
-            } else {
-                Button(
-                    onClick = { TrackingService.end(ctx) },
-                    modifier = Modifier.weight(1.4f).height(76.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BOver, contentColor = Color.White)
-                ) { Text("Sürüşü bitir", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
-            }
-        }
-        Spacer(Modifier.height(2.dp))
-    }
-}
-
-@Composable
-private fun BigCell(k: String, v: String, color: Color?, modifier: Modifier) {
-    Column(modifier.clip(RoundedCornerShape(14.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Text(k, color = BMuted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(v, color = color ?: BFg, fontSize = 34.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-    }
-}
-
-
-private val BBlue = Color(0xFF4C8DFF)
-
-/** Yatay düzen: solda harita, sağda ortalama, limit, anlık hız ve tahmini ortalama kartı. */
-@Composable
-private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
+    val wide = cfg.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val ctx = LocalContext.current
     val voice = rememberVoice()
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
@@ -198,7 +74,7 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
     val avg = if (inC) s.avg else s.tripAvg
     val col = when {
         avg == null -> BMuted
-        !inC || lim == null -> BFg
+        !inC || lim == null -> BOk
         avg > lim -> BOver
         avg > lim * 0.95 -> BWarn
         else -> BOk
@@ -214,137 +90,235 @@ private fun BigDriveWide(s: UiState, onClose: () -> Unit) {
     val next = if (pos == null || inC) null else (route?.corridors ?: emptyList())
         .filter { Geo.dist(pos, it.from) > 50 }.minByOrNull { Geo.dist(pos, it.from) }
         ?.let { CorridorStore.withOverride(it) }
+    var detail by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
 
-    Row(Modifier.fillMaxSize().background(BBg).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        // ---- Harita ----
-        Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp)).border(1.dp, BLine, RoundedCornerShape(22.dp))) {
-            LiveMap(s, ver, controls = true)
-            val topChip = when {
-                inC -> "● Koridor içindesin · ${Geo.fmtKm(s.remaining)} kaldı" + if (s.partial) " · kısmi" else ""
-                c != null -> "● Koridor girişi · yön doğrulanıyor"
-                next != null -> "Sıradaki koridor ${Geo.fmtKm(Geo.dist(pos!!, next.from))} · ${next.limit?.let { "limit $it" } ?: "limit ?"}"
-                else -> null
+    val screenW = cfg.screenWidthDp.dp
+    val screenH = cfg.screenHeightDp.dp
+    val target = when {
+        !s.driving -> if (wide) (screenW * 0.38f).coerceIn(300.dp, 470.dp) else (screenW - 20.dp)
+        wide -> (screenW * 0.2f).coerceIn(180.dp, 280.dp)
+        else -> (screenW * 0.25f).coerceIn(96.dp, 140.dp)
+    }
+    val panelW by androidx.compose.animation.core.animateDpAsState(target, label = "panel")
+
+    Box(Modifier.fillMaxSize().background(BBg)) {
+        // ---- Harita: bütün ekran ----
+        LiveMap(s, ver, controls = true, controlsLeft = true)
+
+        // ---- Haritanın üstü (sol): yaklaşma, koridor durumu, rota seçenekleri ----
+        val freeW = screenW - panelW - 28.dp
+        if (s.driving) Column(
+            Modifier.align(Alignment.TopStart).padding(10.dp).width(freeW.coerceAtLeast(120.dp)),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (s.approachC != null) ApproachBanner(s, big = wide)
+            else {
+                val topChip = when {
+                    inC -> "● Koridordasın · ${Geo.fmtKm(s.remaining)} kaldı" + if (s.partial) " · kısmi" else ""
+                    c != null -> "● Koridor girişi · yön doğrulanıyor"
+                    next != null && pos != null -> "Sıradaki koridor ${Geo.fmtKm(Geo.dist(pos, next.from))} · ${next.limit?.let { "limit $it" } ?: "limit ?"}"
+                    else -> null
+                }
+                topChip?.let { MapChip(it, Modifier, if (inC || c != null) BWarn else BFg) }
             }
-            topChip?.let { MapChip(it, Modifier.align(Alignment.TopStart).padding(10.dp), if (inC || c != null) BWarn else BFg) }
-            if (route != null && remTot != null) {
-                val eta = clock(remTot / (cruise / 3.6))
-                MapChip("Hedef ${route.target.name} · ${Geo.fmtKm(remTot)} · varış $eta", Modifier.align(Alignment.BottomStart).padding(10.dp), BFg)
-            }
-            s.arrived?.let { MapChip("Hedefe vardın: $it", Modifier.align(Alignment.Center), BOk) }
+            if (s.trip.dist < 5000 && RouteSession.alts.size > 1) RouteChoices(compact = true)
         }
+        if (s.driving && route != null && remTot != null && !detail) {
+            val eta = clock(remTot / (cruise / 3.6))
+            Column(
+                Modifier.align(Alignment.BottomStart).padding(10.dp).widthIn(max = freeW.coerceAtLeast(120.dp))
+                    .clip(RoundedCornerShape(18.dp)).background(BGlass).border(1.dp, BLine, RoundedCornerShape(18.dp))
+                    .clickable { detail = true }.padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Text(etaText(remTot / (cruise / 3.6)),
+                    color = BOk, fontSize = if (wide) 26.sp else 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text("${Geo.fmtKm(remTot)} · varış $eta", color = BFg, fontSize = if (wide) 17.sp else 15.sp, maxLines = 1)
+                Text(route.target.name, color = BMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        s.arrived?.let { MapChip("Hedefe vardın: $it", Modifier.align(Alignment.Center), BOk) }
+
         // ---- Sağ panel ----
-        // Araç ekranı kısa olabilir: yükseklik azsa küçük kutular gizlenir, bilgileri ortalama kartına yazılır
-        val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 640
+        val panelMod = Modifier.align(Alignment.TopEnd).fillMaxHeight().width(panelW).padding(top = 8.dp, bottom = 8.dp, end = 8.dp)
+            .clip(RoundedCornerShape(22.dp)).background(BGlass).border(1.dp, BLine, RoundedCornerShape(22.dp))
         if (!s.driving) {
-            StandbyPanel(s, voice, onClose, Modifier.weight(1f).fillMaxHeight())
-            return@Row
+            StandbyPanel(s, voice, onClose, panelMod.padding(12.dp))
+            return@Box
         }
-        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        when {
-                            inC -> c?.name ?: ""
-                            c != null -> c.name
-                            s.driving -> "Serbest sürüş"
-                            else -> "Sürüş başlamadı"
-                        },
-                        color = BFg, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        when {
-                            inC && c != null -> "Ortalama hız koridoru · ${Geo.fmtKm(c.lengthM)}" + if (s.partial) " · kısmi ölçüm" else ""
-                            s.driving -> "Koridor yok · yolculuk ortalaman gösteriliyor"
-                            else -> ""
-                        },
-                        color = BMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (Firma.enabled) TripTypeChip() else Text(s.gpsText, color = BMuted, fontSize = 14.sp, maxLines = 1,
-                    modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(99.dp)).padding(horizontal = 12.dp, vertical = 6.dp))
+        SidePanel(s, inC, c, lim, avg, col, next, wide, panelW, voice, detail, { detail = !detail }, panelMod)
+
+        // ---- Detay kartı (panelin solunda) ----
+        if (detail) {
+            val dMod = if (wide) Modifier.align(Alignment.TopEnd).padding(top = 8.dp, bottom = 8.dp, end = panelW + 6.dp)
+                .width((screenW * 0.42f).coerceIn(300.dp, 520.dp)).fillMaxHeight()
+            else Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 8.dp)
+                .width(screenW - panelW - 14.dp).heightIn(max = screenH * 0.7f)
+            DetailCard(s, inC, c, route, remTot, cruise, wide, onClose, { detail = false },
+                dMod.clip(RoundedCornerShape(22.dp)).background(BGlass).border(1.dp, BBlue.copy(alpha = 0.5f), RoundedCornerShape(22.dp)))
+        }
+    }
+}
+
+/** Sağdaki ince panel: ortalama halkası, limit, anlık hız, kalan/pay, düğmeler. */
+@Composable
+private fun SidePanel(
+    s: UiState, inC: Boolean, c: Corridor?, lim: Int?, avg: Double?, col: Color, next: Corridor?,
+    wide: Boolean, panelW: androidx.compose.ui.unit.Dp, voice: () -> Unit, detail: Boolean, onDetail: () -> Unit, modifier: Modifier
+) {
+    val ctx = LocalContext.current
+    val roomy = panelW >= 170.dp
+    Column(
+        modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 8.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(if (roomy) 10.dp else 8.dp)
+    ) {
+        Text(
+            when {
+                inC && s.partial -> "ORTALAMA\n(BURADAN)"
+                inC -> "EDS\nORTALAMA"
+                c != null -> "KORİDOR\nGİRİŞİ"
+                else -> "GENEL\nORTALAMA"
+            },
+            color = if (inC) BWarn else BMuted, fontSize = if (roomy) 13.sp else 11.sp, lineHeight = if (roomy) 15.sp else 13.sp,
+            fontWeight = FontWeight.Bold, letterSpacing = 1.sp, textAlign = TextAlign.Center
+        )
+        // Ortalama halkası
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            Modifier.fillMaxWidth(if (roomy) 0.86f else 1f).aspectRatio(1f).clip(CircleShape).background(BPanel)
+                .border(if (roomy) 6.dp else 4.dp, if (avg == null) BLine else col, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            val big = with(androidx.compose.ui.platform.LocalDensity.current) { (maxWidth * 0.38f).toSp() }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(avg?.roundToInt()?.toString() ?: "—", color = if (avg == null) BMuted else if (inC) col else BFg,
+                    fontSize = big, lineHeight = big, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text("km/s ort", color = BMuted, fontSize = if (roomy) 13.sp else 10.sp, maxLines = 1)
             }
-            if (s.trip.dist < 5000 && RouteSession.alts.size > 1) RouteChoices(compact = true) else ApproachBanner(s)
-            // Ortalama + tabela + anlık
-            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                androidx.compose.foundation.layout.BoxWithConstraints(
-                    Modifier.weight(1.35f).fillMaxHeight().clip(RoundedCornerShape(20.dp)).background(BPanel)
-                        .border(3.dp, if (inC) col else BLine, RoundedCornerShape(20.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val big = with(androidx.compose.ui.platform.LocalDensity.current) { (maxHeight * (if (compact) 0.4f else 0.5f)).toSp() }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(if (inC) (if (s.partial) "ORTALAMA (BURADAN)" else "KORİDOR ORTALAMASI") else "YOLCULUK ORTALAMASI",
-                            color = BMuted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
-                        Text(avg?.roundToInt()?.toString() ?: "—", color = col, fontSize = big, lineHeight = big, fontWeight = FontWeight.Bold, maxLines = 1)
-                        Text("km/s", color = BMuted, fontSize = 16.sp)
-                        if (compact) Text(
-                            if (inC) "Kalan ${Geo.fmtKm(s.remaining)} · pay ${s.slack?.let { Geo.fmtSlack(it) } ?: "—"}"
-                            else "${Geo.fmtKm(s.trip.dist)} · ${Geo.fmtT(s.trip.time)} · bekleme ${Geo.fmtT(s.trip.stop)}",
-                            color = BFg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1
-                        )
-                    }
-                    if (inC) LinearProgressIndicator(
-                        progress = { s.progress },
-                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).height(8.dp).clip(RoundedCornerShape(4.dp)),
-                        color = BWarn, trackColor = BLine
-                    )
-                }
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(
-                        Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(20.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(20.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (lim == null && s.roadLimit != null) RoadLimitSign(s, 84) else Box(
-                            Modifier.padding(8.dp).size(96.dp).clip(CircleShape).background(if (lim != null) Color.White else BPanel)
-                                .border(12.dp, if (lim != null) BRed else BLine, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) { Text(lim?.toString() ?: "—", color = if (lim != null) Color(0xFF111111) else BMuted, fontSize = 38.sp, fontWeight = FontWeight.Bold) }
-                    }
-                    Column(
-                        Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(20.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(20.dp)),
-                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
-                    ) {
-                        Text("ANLIK HIZ", color = BMuted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        val sp = s.speedKmh
-                        Text(sp?.toString() ?: "—", fontSize = 58.sp, lineHeight = 60.sp, fontWeight = FontWeight.Bold,
-                            color = if (sp != null && lim != null && sp > lim) BOver else BFg)
-                    }
-                }
+        }
+        if (inC) LinearProgressIndicator(
+            progress = { s.progress },
+            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+            color = BWarn, trackColor = BLine
+        )
+        // Anlık hız + limit
+        val sp = s.speedKmh
+        val signSize = if (roomy) 76 else 62
+        if (roomy) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            SpeedBox(sp, lim, roomy, Modifier.weight(1f)); LimitSign(s, lim, signSize, roomy)
+        } else { SpeedBox(sp, lim, roomy, Modifier.fillMaxWidth()); LimitSign(s, lim, signSize, roomy) }
+        // Kalan / pay ya da sıradaki
+        if (inC) {
+            PanelLine("KALAN", Geo.fmtKm(s.remaining), null, roomy)
+            PanelLine("PAY", s.slack?.let { Geo.fmtSlack(it) } ?: "—", s.slack?.let { if (it >= 0) BOk else BOver }, roomy)
+        } else {
+            val pos = s.pos
+            if (next != null && pos != null) PanelLine("SIRADAKİ", Geo.fmtKm(Geo.dist(pos, next.from)), BWarn, roomy)
+            PanelLine("YOL", Geo.fmtKm(s.trip.dist), null, roomy)
+        }
+        (s.arrived?.let { "Hedefe vardın" } ?: s.note)?.let {
+            Text(it, color = BWarn, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.height(2.dp))
+        // Düğmeler
+        val bh = if (roomy) 52.dp else 46.dp
+        val fs = if (roomy) 17.sp else 14.sp
+        Button(onClick = onDetail, modifier = Modifier.fillMaxWidth().height(bh), contentPadding = PaddingValues(4.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = if (detail) BBlue else BPanel, contentColor = BFg)) {
+            Text(if (detail) "Kapat ›" else "‹ Detay", fontSize = fs, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Button(onClick = voice, modifier = Modifier.fillMaxWidth().height(bh), contentPadding = PaddingValues(4.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)) {
+            Text(if (roomy) "🎤 Konuş" else "🎤", fontSize = fs, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Button(onClick = { TrackingService.end(ctx) }, modifier = Modifier.fillMaxWidth().height(bh), contentPadding = PaddingValues(4.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = BOver, contentColor = Color.White)) {
+            Text(if (roomy) "Sürüşü bitir" else "Bitir", fontSize = fs, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun LimitSign(s: UiState, lim: Int?, signSize: Int, roomy: Boolean) {
+    if (lim == null && s.roadLimit != null) RoadLimitSign(s, signSize) else Box(
+        Modifier.size(signSize.dp).clip(CircleShape).background(if (lim != null) Color.White else BPanel)
+            .border(if (roomy) 9.dp else 7.dp, if (lim != null) BRed else BLine, CircleShape),
+        contentAlignment = Alignment.Center
+    ) { Text(lim?.toString() ?: "—", color = if (lim != null) Color(0xFF111111) else BMuted, fontSize = if (roomy) 28.sp else 22.sp, fontWeight = FontWeight.Bold) }
+}
+
+@Composable
+private fun SpeedBox(sp: Int?, lim: Int?, roomy: Boolean, m: Modifier) {
+    Column(m.clip(RoundedCornerShape(14.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(14.dp)).padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("ANLIK", color = BMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(sp?.toString() ?: "—", fontSize = if (roomy) 34.sp else 28.sp, lineHeight = if (roomy) 36.sp else 30.sp, fontWeight = FontWeight.Bold,
+            color = if (sp != null && lim != null && sp > lim) BOver else BFg, maxLines = 1)
+    }
+}
+
+private fun etaText(sec: Double): String {
+    val m = (sec / 60).roundToInt()
+    return if (m >= 60) "${m / 60} sa ${m % 60} dk" else "$m dk"
+}
+
+@Composable
+private fun PanelLine(k: String, v: String, color: Color?, roomy: Boolean) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(k, color = BMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, maxLines = 1)
+        Text(v, color = color ?: BFg, fontSize = if (roomy) 24.sp else 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+    }
+}
+
+/** Detay kartı: koridor/yolculuk ayrıntısı, tahmini ortalama, rota, uygulamaya dönüş. */
+@Composable
+private fun DetailCard(
+    s: UiState, inC: Boolean, c: Corridor?, route: RouteSession.Info?, remTot: Double?, cruise: Double,
+    wide: Boolean, onApp: () -> Unit, onHide: () -> Unit, modifier: Modifier
+) {
+    Column(
+        modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    when { c != null -> c.name; s.driving -> "Serbest sürüş"; else -> "Sürüş başlamadı" },
+                    color = BFg, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    if (inC && c != null) "Ortalama hız koridoru · ${Geo.fmtKm(c.lengthM)}" + (if (s.partial) " · kısmi ölçüm" else "")
+                    else "Koridor dışında · genel ortalaman gösteriliyor",
+                    color = BMuted, fontSize = 13.sp, maxLines = 2
+                )
             }
-            // Küçük kutular
-            if (!compact) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (inC) {
-                    WideTile("KALAN", Geo.fmtKm(s.remaining), null, Modifier.weight(1f))
-                    WideTile("ZAMAN PAYI", s.slack?.let { Geo.fmtSlack(it) } ?: "—", s.slack?.let { if (it >= 0) BOk else BOver }, Modifier.weight(1f))
-                    WideTile("EDS İÇİ BEKLEME", Geo.fmtT(s.corridorStop), if (s.corridorStop > 0) BWarn else null, Modifier.weight(1f))
-                } else {
-                    WideTile("MESAFE", Geo.fmtKm(s.trip.dist), null, Modifier.weight(1f))
-                    WideTile("SÜRE", Geo.fmtT(s.trip.time), null, Modifier.weight(1f))
-                    WideTile("BEKLEME", Geo.fmtT(s.trip.stop), null, Modifier.weight(1f))
-                }
+            Text("✕", color = BFg, fontSize = 22.sp, modifier = Modifier.clip(CircleShape).clickable { onHide() }.padding(10.dp))
+        }
+        if (Firma.enabled) TripTypeChip()
+        RouteSession.enforcement?.text?.let { Text("🚓 $it", color = BWarn, fontSize = 14.sp) }
+        val tiles = if (inC) listOf(
+            Triple("KALAN", Geo.fmtKm(s.remaining), null),
+            Triple("ZAMAN PAYI", s.slack?.let { Geo.fmtSlack(it) } ?: "—", s.slack?.let { if (it >= 0) BOk else BOver }),
+            Triple("EN FAZLA ORT.", s.maxAvgLeft, null),
+            Triple("EDS İÇİ BEKLEME", Geo.fmtT(s.corridorStop), if (s.corridorStop > 0) BWarn else null)
+        ) else listOf(
+            Triple("MESAFE", Geo.fmtKm(s.trip.dist), null),
+            Triple("SÜRE", Geo.fmtT(s.trip.time), null),
+            Triple("HAREKET ORT.", s.moveAvg?.let { "${it.roundToInt()} km/s" } ?: "—", null),
+            Triple("BEKLEME", Geo.fmtT(s.trip.stop), null)
+        )
+        tiles.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (k, v, cl) -> WideTile(k, v, cl, Modifier.weight(1f)) }
             }
-            // Tahmini ortalama
-            Estimate(s, inC, c, remTot, cruise, compact, Modifier.fillMaxWidth())
-            // Düğmeler
-            Row(Modifier.height(62.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = voice, modifier = Modifier.weight(1f).fillMaxHeight(),
-                    colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)) { Text("🎤 Konuş", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-                Button(onClick = onClose, modifier = Modifier.weight(1f).fillMaxHeight(),
-                    colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)) { Text("Ayrıntılar", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-                if (!s.driving) {
-                    Button(
-                        onClick = { if (hasLocation(ctx)) TrackingService.start(ctx) },
-                        modifier = Modifier.weight(1.3f).fillMaxHeight(),
-                        colors = ButtonDefaults.buttonColors(containerColor = BOk, contentColor = Color(0xFF06140C))
-                    ) { Text("Sürüşü başlat", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-                } else {
-                    Button(
-                        onClick = { TrackingService.end(ctx) },
-                        modifier = Modifier.weight(1.3f).fillMaxHeight(),
-                        colors = ButtonDefaults.buttonColors(containerColor = BOver, contentColor = Color.White)
-                    ) { Text("Sürüşü bitir", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-                }
-            }
+        }
+        Estimate(s, inC, c, remTot, cruise, false, Modifier.fillMaxWidth())
+        if (route != null && remTot != null) {
+            Text("Hedef: ${route.target.name} · kalan ${Geo.fmtKm(remTot)} · rotada ${route.corridors.size} koridor",
+                color = BFg, fontSize = 14.sp)
+        }
+        Button(onClick = onApp, modifier = Modifier.fillMaxWidth().height(50.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)) {
+            Text("Uygulama ekranı (yolculuklar, garaj, ayarlar)", fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
