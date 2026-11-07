@@ -157,10 +157,10 @@ class GMapHolder(ctx: Context) : LiveMapView {
             }
             if (!hasFix) {
                 hasFix = true
-                m.moveCamera(CameraUpdateFactory.newLatLngZoom(gp, if (nav) 16.5f else 15f))
+                m.moveCamera(CameraUpdateFactory.newLatLngZoom(gp, if (nav) NavZoom.of(s.speedKmh) else 17f))
             } else if (follow && nav && (gp != lastCam || h != lastH)) {
                 lastCam = gp; lastH = h
-                val z = m.cameraPosition.zoom.let { if (it < 12f) 16.5f else it }
+                val z = NavZoom.of(s.speedKmh)
                 m.animateCamera(CameraUpdateFactory.newCameraPosition(
                     com.google.android.gms.maps.model.CameraPosition.Builder().target(gp).zoom(z).bearing(h ?: m.cameraPosition.bearing).tilt(45f).build()
                 ), 900, null)
@@ -216,12 +216,12 @@ class GMapHolder(ctx: Context) : LiveMapView {
         val m = gm ?: return
         val nav = navMode && AppSettings.headingUp && s.driving
         m.moveCamera(CameraUpdateFactory.newCameraPosition(
-            com.google.android.gms.maps.model.CameraPosition.Builder().target(g(p)).zoom(maxOf(m.cameraPosition.zoom, if (nav) 16.5f else 15f))
+            com.google.android.gms.maps.model.CameraPosition.Builder().target(g(p)).zoom(if (nav) { NavZoom.bias = 0f; NavZoom.of(s.speedKmh) } else maxOf(m.cameraPosition.zoom, 17f))
                 .bearing(if (nav) heading.deg ?: 0f else 0f).tilt(if (nav) 45f else 0f).build()))
     }
 
-    override fun zoomIn() { gm?.animateCamera(CameraUpdateFactory.zoomIn()) }
-    override fun zoomOut() { gm?.animateCamera(CameraUpdateFactory.zoomOut()) }
+    override fun zoomIn() { if (navMode) NavZoom.bias += 1f; gm?.animateCamera(CameraUpdateFactory.zoomIn()) }
+    override fun zoomOut() { if (navMode) NavZoom.bias -= 1f; gm?.animateCamera(CameraUpdateFactory.zoomOut()) }
     override fun resume() { mv.onStart(); mv.onResume() }
     override fun pause() { mv.onPause(); mv.onStop() }
 

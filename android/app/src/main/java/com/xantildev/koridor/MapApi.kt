@@ -97,3 +97,22 @@ fun arrowBitmap(density: Float, sizeDp: Int = 34): android.graphics.Bitmap {
     c.drawPath(path, p)
     return b
 }
+
+/**
+ * Navigasyonda otomatik yakınlık: şehir içinde ve dönüşe yaklaşırken çok yakın (5–6 sokak),
+ * yolda hız arttıkça biraz uzak. Kullanıcı +/− ile kaydırabilir; ◎ ile sıfırlanır.
+ */
+object NavZoom {
+    var bias = 0f
+    fun of(kmh: Int?): Float {
+        val turn = Directions.next?.let { it.step.code != "straight" && it.distM < 400 } == true
+        val v = kmh ?: 0
+        val base = when {
+            turn || v < 45 -> 18.3f
+            v < 75 -> 17.6f
+            v < 100 -> 16.9f
+            else -> 16.3f
+        }
+        return (base + bias).coerceIn(13f, 20f)
+    }
+}

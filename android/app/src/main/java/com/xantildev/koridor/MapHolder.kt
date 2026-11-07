@@ -20,8 +20,8 @@ class MapHolder(ctx: Context) : LiveMapView {
     val map = MapView(ctx)
     override val view: android.view.View get() = map
     override var onUserPan: () -> Unit = {}
-    override fun zoomIn() { map.controller.zoomIn() }
-    override fun zoomOut() { map.controller.zoomOut() }
+    override fun zoomIn() { if (navMode) NavZoom.bias += 1f; map.controller.zoomIn() }
+    override fun zoomOut() { if (navMode) NavZoom.bias -= 1f; map.controller.zoomOut() }
     override fun resume() { map.onResume() }
     override fun pause() { map.onPause() }
 
@@ -158,9 +158,13 @@ class MapHolder(ctx: Context) : LiveMapView {
             map.mapOrientation = if (nav) (h?.let { -it } ?: map.mapOrientation) else 0f
             if (!hasFix) {
                 hasFix = true
-                map.controller.setZoom(if (nav) 17.0 else 15.0)
+                map.controller.setZoom(if (nav) NavZoom.of(s.speedKmh).toDouble() else 17.0)
                 map.controller.setCenter(gp)
             } else if (follow) {
+                if (nav) {
+                    val z = NavZoom.of(s.speedKmh).toDouble()
+                    if (kotlin.math.abs(map.zoomLevelDouble - z) > 0.3) map.controller.setZoom(z)
+                }
                 map.controller.setCenter(gp)
             }
         } else {
@@ -184,7 +188,8 @@ class MapHolder(ctx: Context) : LiveMapView {
 
     override fun recenter(s: UiState) {
         val p = s.pos ?: return
-        map.controller.setZoom(max(map.zoomLevelDouble, 15.0))
+        NavZoom.bias = 0f
+        map.controller.setZoom(if (navMode && AppSettings.headingUp && s.driving) NavZoom.of(s.speedKmh).toDouble() else max(map.zoomLevelDouble, 17.0))
         map.controller.setCenter(GeoPoint(p.lat, p.lon))
     }
 

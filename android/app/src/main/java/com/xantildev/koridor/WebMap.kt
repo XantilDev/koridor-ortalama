@@ -126,10 +126,11 @@ class WebMapHolder(ctx: Context) : LiveMapView {
             val h = heading.feed(p, s.speedKmh)
             val nav = navMode && AppSettings.headingUp && s.driving
             val inset = (rightInsetPx / density).toInt()
-            val key = "${p.lat},${p.lon},$h,$follow,$nav,$inset"
+            val z = if (nav) NavZoom.of(s.speedKmh) else 17f
+            val key = "${p.lat},${p.lon},$h,$follow,$nav,$inset,$z"
             if (key != posKey) {
                 posKey = key
-                js("setPos(${p.lat},${p.lon},${h ?: "null"},$follow,$nav,$inset,${!hadFix})")
+                js("setPos(${p.lat},${p.lon},${h ?: "null"},$follow,$nav,$inset,${!hadFix},$z)")
                 hadFix = true
             }
         } else if (hadFix) { hadFix = false; js("clearPos()") }
@@ -138,11 +139,14 @@ class WebMapHolder(ctx: Context) : LiveMapView {
     override fun recenter(s: UiState) {
         val p = s.pos ?: return
         val nav = navMode && AppSettings.headingUp && s.driving
-        js("setPos(${p.lat},${p.lon},${heading.deg ?: "null"},true,$nav,${(rightInsetPx / density).toInt()},false)")
+        NavZoom.bias = 0f
+        val z = if (nav) NavZoom.of(s.speedKmh) else 17f
+        posKey = ""
+        js("setPos(${p.lat},${p.lon},${heading.deg ?: "null"},true,$nav,${(rightInsetPx / density).toInt()},false,$z,true)")
     }
 
-    override fun zoomIn() = js("map.setZoom(map.getZoom()+1)")
-    override fun zoomOut() = js("map.setZoom(map.getZoom()-1)")
+    override fun zoomIn() { if (navMode) NavZoom.bias += 1f; js("map.setZoom(map.getZoom()+1)") }
+    override fun zoomOut() { if (navMode) NavZoom.bias -= 1f; js("map.setZoom(map.getZoom()-1)") }
     override fun resume() { wv.onResume() }
     override fun pause() { wv.onPause() }
 
@@ -199,12 +203,12 @@ function move(p,brg,d){var b=brg*Math.PI/180;return {lat:p.lat+d*Math.cos(b)/111
 var curH=0,lastH=null;
 function arrowRot(h){return vec?((h-curH)+360)%360:h}
 function clearPos(){if(you){you.setMap(null);you=null}}
-function setPos(lat,lon,h,follow,nav,inset,first){var pos={lat:lat,lng:lon};lastH=h;
+function setPos(lat,lon,h,follow,nav,inset,first,zz,force){var pos={lat:lat,lng:lon};lastH=h;
  if(!you)you=new google.maps.Marker({map:map,zIndex:20,clickable:false});you.setPosition(pos);
  you.setIcon(h==null?{path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:'#F2B632',fillOpacity:1,strokeColor:'#fff',strokeWeight:3}
   :{path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:6,rotation:arrowRot(h),fillColor:'#2F7BFF',fillOpacity:1,strokeColor:'#fff',strokeWeight:2});
  if(!follow&&!first){if(!nav&&lastNav){lastNav=false}return}
- var z=first?(nav?17:15):(map.getZoom()<12?16.5:map.getZoom());
+ var z=(nav||first||force)?zz:Math.max(map.getZoom(),12);
  var hh=(nav&&h!=null)?h:0,mpp=156543.03*Math.cos(lat*Math.PI/180)/Math.pow(2,z);
  var c=move(pos,hh,(nav?innerHeight*0.25:0)*mpp);c=move(c,hh+90,(inset/2)*mpp);
  if(vec){map.moveCamera({center:c,zoom:z,heading:nav?hh:0,tilt:nav?45:0});curH=nav?hh:0;if(h!=null&&you.getIcon())you.setIcon(Object.assign({},you.getIcon(),{rotation:arrowRot(h)}))}
