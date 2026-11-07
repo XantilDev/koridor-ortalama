@@ -119,49 +119,58 @@ object TrafikApi {
     class Enforcement(val radar: Int?, val other: Int?, val points: List<LatLng>, val fields: String) {
         val text: String?
             get() = when {
-                radar != null && other != null -> "Rotada $radar radarlı, $other radarsız trafik uygulaması var."
-                radar != null -> "Rotada $radar radarlı trafik uygulaması var."
+                radar != null && other != null -> "Rotada $radar radar noktası, $other kontrol noktası var."
+                radar != null -> "Rotada $radar radar noktası var."
                 other != null -> "Rotada $other trafik uygulaması var."
                 points.isNotEmpty() -> "Rotada ${points.size} trafik uygulama noktası var."
                 else -> null
             }
     }
 
-    /** Alan adları yayınlanmadığı için yanıt genel olarak taranır: SpeedTunnels dışındaki sayılar ve diziler. */
+    /**
+     * Alan adları yayınlanmadığı için yanıt genel olarak taranır (diziler dahil, SpeedTunnels hariç).
+     * Aynı adlı sayılar toplanır (ör. il il radar sayıları). Sitedeki kutular: Radar Noktası, Kontrol Noktası.
+     */
     private fun enforcement(o: JSONObject): Enforcement {
-        val nums = LinkedHashMap<String, Int>()
+        val sums = LinkedHashMap<String, Int>()      // yaprak alan adı → toplam
         val arrs = LinkedHashMap<String, JSONArray>()
-        fun walk(x: JSONObject, prefix: String, depth: Int) {
+        val pts = ArrayList<LatLng>()
+        fun num(v: Any?): Int? = when (v) {
+            is Int -> v
+            is Long -> v.toInt()
+            is Double -> if (v == Math.floor(v) && v in 0.0..10000.0) v.toInt() else null
+            is String -> v.trim().takeIf { it.length <= 5 }?.toIntOrNull()
+            else -> null
+        }
+        fun walkObj(x: JSONObject, path: String, depth: Int) {
+            if (depth > 6) return
+            val lat = listOf("latitude", "lat", "latY", "Latitude", "Lat", "LatY").firstNotNullOfOrNull { k -> x.opt(k)?.toString()?.toDoubleOrNull() }
+            val lon = listOf("longitude", "lon", "lng", "lonX", "Longitude", "Lon", "LonX").firstNotNullOfOrNull { k -> x.opt(k)?.toString()?.toDoubleOrNull() }
+            if (lat != null && lon != null && lat in 35.0..43.0 && lon in 25.0..46.0 && path.isNotEmpty()) pts.add(LatLng(lat, lon))
             for (k in x.keys()) {
                 if (k == "SpeedTunnels") continue
                 val v = x.opt(k)
-                val key = prefix + k
                 when (v) {
-                    is Int -> nums[key] = v
-                    is Long -> nums[key] = v.toInt()
-                    is String -> v.trim().toIntOrNull()?.let { if (k.contains("count", true) || k.contains("say", true)) nums[key] = it }
-                    is JSONArray -> arrs[key] = v
-                    is JSONObject -> if (depth < 3) walk(v, "$key.", depth + 1)
+                    is JSONObject -> walkObj(v, "$path$k.", depth + 1)
+                    is JSONArray -> {
+                        arrs["$path$k"] = v
+                        for (i in 0 until v.length()) v.optJSONObject(i)?.let { walkObj(it, "$path$k[].", depth + 1) }
+                    }
+                    else -> num(v)?.let { n -> if (!k.contains("id", true) || k.contains("count", true)) sums[k] = (sums[k] ?: 0) + n }
                 }
             }
         }
-        walk(o, "", 0)
-        fun lc(k: String) = k.lowercase().replace("ı", "i")
-        fun isOther(k: String) = lc(k).let { it.contains("radarsiz") || it.contains("nonradar") || it.contains("withoutradar") || it.contains("noradar") || it.contains("other") }
+        walkObj(o, "", 0)
+        fun lc(k: String) = k.lowercase().replace("ı", "i").replace("İ", "i")
+        fun isOther(k: String) = lc(k).let { it.contains("radarsiz") || it.contains("nonradar") || it.contains("withoutradar") || it.contains("noradar") }
         fun isRadar(k: String) = lc(k).contains("radar") && !isOther(k)
-        var radar = nums.entries.firstOrNull { isRadar(it.key) }?.value
-        var other = nums.entries.firstOrNull { isOther(it.key) }?.value
-        if (radar == null) radar = arrs.entries.firstOrNull { isRadar(it.key) }?.value?.length()
-        if (other == null) other = arrs.entries.firstOrNull { isOther(it.key) }?.value?.length()
-        // Koordinatlı noktalar (dizilerde enlem/boylam alanı varsa)
-        val pts = ArrayList<LatLng>()
-        for ((_, a) in arrs) for (i in 0 until a.length()) {
-            val e = a.optJSONObject(i) ?: continue
-            val lat = listOf("latitude", "lat", "latY", "y", "Latitude", "Lat").firstNotNullOfOrNull { k -> e.opt(k)?.toString()?.toDoubleOrNull() }
-            val lon = listOf("longitude", "lon", "lng", "lonX", "x", "Longitude", "Lon").firstNotNullOfOrNull { k -> e.opt(k)?.toString()?.toDoubleOrNull() }
-            if (lat != null && lon != null && lat in 35.0..43.0 && lon in 25.0..46.0) pts.add(LatLng(lat, lon))
-        }
-        val fields = (nums.map { "${it.key}=${it.value}" } + arrs.map { "${it.key}[${it.value.length()}]" }).joinToString(", ")
+        fun isControl(k: String) = lc(k).let { (it.contains("control") || it.contains("kontrol")) && !it.contains("radar") }
+        val radar = sums.entries.filter { isRadar(it.key) }.maxByOrNull { it.value }?.value
+            ?: arrs.entries.firstOrNull { isRadar(it.key.substringAfterLast('.')) }?.value?.length()
+        val other = (sums.entries.filter { isOther(it.key) } + sums.entries.filter { isControl(it.key) && lc(it.key).contains("count") })
+            .maxByOrNull { it.value }?.value
+            ?: arrs.entries.firstOrNull { isOther(it.key.substringAfterLast('.')) || isControl(it.key.substringAfterLast('.')) }?.value?.length()
+        val fields = (sums.map { "${it.key}=${it.value}" } + arrs.map { "${it.key}[${it.value.length()}]" }).joinToString(", ")
         return Enforcement(radar, other, pts, fields)
     }
 

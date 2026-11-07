@@ -123,6 +123,10 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
                 }
                 topChip?.let { MapChip(it, Modifier, if (inC || c != null) BWarn else BFg) }
             }
+            RouteSession.enforcement?.let { e ->
+                val r = e.radar; val o = e.other
+                if (r != null || o != null) MapChip("🚓 " + listOfNotNull(r?.let { "$it radar" }, o?.let { "$it kontrol" }).joinToString(" · ") + " noktası (rotada)", Modifier, BWarn)
+            }
             if (s.trip.dist < 5000 && RouteSession.alts.size > 1) RouteChoices(compact = true)
         }
         if (s.driving && route != null && remTot != null && !detail) {
@@ -306,7 +310,18 @@ private fun DetailCard(
             Text("✕", color = BFg, fontSize = 22.sp, modifier = Modifier.clip(CircleShape).clickable { onHide() }.padding(10.dp))
         }
         if (Firma.enabled) TripTypeChip()
-        RouteSession.enforcement?.text?.let { Text("🚓 $it", color = BWarn, fontSize = 14.sp) }
+        val enf = RouteSession.enforcement
+        val ctx = LocalContext.current
+        when {
+            enf?.text != null -> Text("🚓 ${enf.text} Yerleri EGM tarafından açıklanmıyor.", color = BWarn, fontSize = 14.sp)
+            TrafikApi.lastRaw != null -> {
+                Text("🚓 Radar/kontrol sayısı EGM yanıtından okunamadı. Aşağıdaki düğmeyle yanıtı gönderirsen okunacak şekilde düzeltilir.", color = BMuted, fontSize = 13.sp)
+                androidx.compose.material3.OutlinedButton(onClick = {
+                    val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, TrafikApi.lastRaw)
+                    ctx.startActivity(android.content.Intent.createChooser(i, "EGM rota yanıtını paylaş"))
+                }) { Text("EGM rota yanıtını paylaş", color = BFg) }
+            }
+        }
         val tiles = if (inC) listOf(
             Triple("KALAN", Geo.fmtKm(s.remaining), null),
             Triple("ZAMAN PAYI", s.slack?.let { Geo.fmtSlack(it) } ?: "—", s.slack?.let { if (it >= 0) BOk else BOver }),

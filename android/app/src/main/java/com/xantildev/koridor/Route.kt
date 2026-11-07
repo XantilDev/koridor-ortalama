@@ -136,6 +136,7 @@ object RouteSession {
     /** trafik.gov.tr'den rotadaki koridorlar (yalnız rota çizgisinin üstündekiler). */
     private suspend fun fetchCorridors(here: LatLng, p: Places.Place, line: List<LatLng>?): Triple<List<Corridor>, String, String> {
         val (all, a, b) = fetchAll(here, p)
+        TrafikApi.lastEnforcement?.let { e -> if (info?.target == p) enforcement = e }
         val list = if (line != null) all.filter { onLine(it, line) } else all
         CorridorStore.addRoute(list)
         return Triple(list, a, b)
