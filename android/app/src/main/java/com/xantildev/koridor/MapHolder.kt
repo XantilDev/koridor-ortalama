@@ -37,7 +37,7 @@ class MapHolder(ctx: Context) : LiveMapView {
 
     /** Seçilmeyen rota seçenekleri gri; dokununca o rota seçilir. */
     private fun drawAlts() {
-        val alts = RouteSession.alts
+        val alts = RouteSession.shownAlts
         if (alts === drawnAlts && RouteSession.altIndex == drawnAltIndex) return
         drawnAlts = alts; drawnAltIndex = RouteSession.altIndex
         altLines.forEach { map.overlays.remove(it) }

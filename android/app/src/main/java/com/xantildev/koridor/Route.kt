@@ -126,12 +126,17 @@ object RouteSession {
         private set
     var altIndex by mutableIntStateOf(0)
         private set
+    /** Seçim yapıldı (ya da yola çıkıldı): seçenek kartları ve gri çizgiler gizlenir. */
+    var altPicked by mutableStateOf(false)
+        private set
+    val shownAlts: List<Alt> get() = if (altPicked) emptyList() else alts
 
     /** Haritada/listede bir seçeneğe dokununca: o rota etkin olur. */
     fun selectAlt(i: Int) {
         val a = alts.getOrNull(i) ?: return
         val cur = info ?: return
-        if (i == altIndex) return
+        altPicked = true
+        if (i == altIndex) { Engine.say("Rota ${"ABC"[i]} seçildi."); return }
         altIndex = i
         info = Info(cur.target, a.corridors, a.line, a.distM, a.durS, cur.start, cur.startLabel, cur.targetLabel, "yol", cur.corridorsMissing)
         offSince = 0
@@ -236,6 +241,7 @@ object RouteSession {
     fun onFix(p: LatLng, kmh: Int?) {
         val inf = info ?: return
         Directions.onFix(p, kmh, inf)
+        if (!altPicked && alts.isNotEmpty() && Geo.dist(p, inf.start) > 1500) altPicked = true   // yola çıkıldı, seçenekler kalkar
         if (enforcement == null && enfAsked !== inf) refreshEnforcement(p)
         // Rotada radar noktası varsa her 30 km'de bir hatırlat
         val e = enforcement
@@ -360,6 +366,7 @@ object RouteSession {
             val altList = roads.map { (ln, d, t) -> Alt(ln, d, t, pool.filter { onLine(it, ln) }) }
             alts = if (altList.size > 1) altList else emptyList()
             altIndex = 0
+            altPicked = false
             val corridors = altList.firstOrNull()?.corridors ?: if (err == null) pool else emptyList()
             if (err != null && corridors.isNotEmpty()) err += " Telefonda kayıtlı ${corridors.size} koridor kullanılıyor."
             val line = road?.first ?: listOf(here, p.ll)

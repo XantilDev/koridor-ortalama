@@ -128,7 +128,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
                 val r = e.radar; val o = e.other
                 if (r != null || o != null) MapChip("🚓 Rotada " + listOfNotNull(r?.let { "$it radar" }, o?.let { "$it kontrol" }).joinToString(" · ") + " noktası · yerleri bilinmiyor", Modifier, BOver)
             }
-            if (s.trip.dist < 5000 && RouteSession.alts.size > 1) RouteChoices(compact = true)
+            if (RouteSession.shownAlts.size > 1) RouteChoices(compact = true)
         }
         if (s.driving && route != null && remTot != null && !detail) {
             val eta = clock(remTot / (cruise / 3.6))

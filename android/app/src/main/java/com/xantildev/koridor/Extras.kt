@@ -482,7 +482,7 @@ fun TripTypeChip(large: Boolean = true) {
  */
 @Composable
 fun RouteChoices(compact: Boolean = false) {
-    val alts = RouteSession.alts
+    val alts = RouteSession.shownAlts
     if (alts.size < 2) return
     val fastest = alts.indices.minByOrNull { alts[it].durS }
     val fewest = alts.indices.minByOrNull { alts[it].corridors.size }
