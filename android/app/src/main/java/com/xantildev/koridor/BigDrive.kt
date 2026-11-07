@@ -125,7 +125,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
             }
             RouteSession.enforcement?.let { e ->
                 val r = e.radar; val o = e.other
-                if (r != null || o != null) MapChip("🚓 " + listOfNotNull(r?.let { "$it radar" }, o?.let { "$it kontrol" }).joinToString(" · ") + " noktası (rotada)", Modifier, BWarn)
+                if (r != null || o != null) MapChip("🚓 Rotada " + listOfNotNull(r?.let { "$it radar" }, o?.let { "$it kontrol" }).joinToString(" · ") + " noktası · yerleri bilinmiyor", Modifier, BOver)
             }
             if (s.trip.dist < 5000 && RouteSession.alts.size > 1) RouteChoices(compact = true)
         }

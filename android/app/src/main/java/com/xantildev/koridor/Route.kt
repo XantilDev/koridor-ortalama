@@ -182,8 +182,39 @@ object RouteSession {
      * Sürüşte her konumda çağrılır. Rotaya 150 m'den uzak, en az 10 km/s hızla 15 sn kalınırsa
      * bulunulan yerden aynı hedefe yeni rota hesaplanır (dakikada en fazla bir, hedef başına en fazla 30 kez).
      */
+    private var warnAt: LatLng? = null
+    private var enfAsked: Any? = null
+
+    /** Rota açıkken radar sayısı yoksa bir kez arkada iste (güncellemeden önce başlamış rotalar için). */
+    fun refreshEnforcement(here: LatLng) {
+        val inf = info ?: return
+        if (enfAsked === inf) return
+        enfAsked = inf
+        scope.launch {
+            try {
+                val (all, a, b) = fetchAll(here, inf.target)
+                TrafikApi.lastEnforcement?.let { if (info?.target == inf.target) enforcement = it }
+                CorridorStore.addRoute(all.filter { onLine(it, inf.line) })
+                enforcement?.text?.let { Engine.say("$it Hız sınırına dikkat.", "radar", 60_000) }
+            } catch (_: Exception) {
+                enfAsked = null
+            }
+        }
+    }
+
     fun onFix(p: LatLng, kmh: Int?) {
         val inf = info ?: return
+        if (enforcement == null && enfAsked !== inf) refreshEnforcement(p)
+        // Rotada radar noktası varsa her 30 km'de bir hatırlat
+        val e = enforcement
+        if (e != null && ((e.radar ?: 0) > 0 || (e.other ?: 0) > 0)) {
+            val w = warnAt
+            if (w == null) warnAt = p
+            else if (Geo.dist(w, p) > 30_000) {
+                warnAt = p
+                e.text?.let { Engine.say("Hatırlatma: $it Yerleri bilinmiyor, hız sınırına dikkat.", "radar", 600_000) }
+            }
+        }
         if (busy || rerouting || inf.line.size < 2 || reroutes >= 30) return
         if (Geo.dist(p, inf.target.ll) < 300) { offSince = 0; return }
         val now = System.currentTimeMillis()
