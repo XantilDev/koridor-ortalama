@@ -27,6 +27,8 @@ class MapHolder(ctx: Context) : LiveMapView {
 
     private val trail = Polyline(map)
     private val routeLine = Polyline(map)
+    private val routeEdge = Polyline(map)
+    private val corrUnder = FolderOverlay()
     private var drawnRoute: RouteSession.Info? = null
     private var fittedTarget: Places.Place? = null
     private val altLines = ArrayList<Polyline>()
@@ -69,13 +71,22 @@ class MapHolder(ctx: Context) : LiveMapView {
         map.zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
         map.controller.setZoom(6.0)
         map.controller.setCenter(GeoPoint(39.0, 35.0))
-        trail.outlinePaint.color = 0xFFF2B632.toInt()
-        trail.outlinePaint.strokeWidth = 12f
+        trail.outlinePaint.color = 0x99F2B632.toInt()
+        trail.outlinePaint.strokeWidth = 8f
         you.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
         you.icon = dot(0xFFF2B632.toInt(), Color.WHITE, 44)
         you.setInfoWindow(null)
-        routeLine.outlinePaint.color = 0xCC4DA3FF.toInt()
-        routeLine.outlinePaint.strokeWidth = 10f
+        val dn = ctx.resources.displayMetrics.density
+        routeEdge.outlinePaint.color = 0xFF0B57D0.toInt()
+        routeEdge.outlinePaint.strokeWidth = 12 * dn
+        routeEdge.outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+        routeEdge.outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+        routeLine.outlinePaint.color = 0xFF4A8CFF.toInt()
+        routeLine.outlinePaint.strokeWidth = 8 * dn
+        routeLine.outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+        routeLine.outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+        map.overlays.add(corrUnder)
+        map.overlays.add(routeEdge)
         map.overlays.add(routeLine)
         map.overlays.add(corr)
         map.overlays.add(trail)
@@ -106,6 +117,7 @@ class MapHolder(ctx: Context) : LiveMapView {
             drawnRoute = ri
             val pts = ri?.line?.map { GeoPoint(it.lat, it.lon) } ?: emptyList()
             routeLine.setPoints(pts)
+            routeEdge.setPoints(pts)
             map.overlays.remove(startMark)
             map.overlays.remove(endMark)
             if (ri != null && pts.size >= 2) {
@@ -178,6 +190,7 @@ class MapHolder(ctx: Context) : LiveMapView {
 
     private fun drawCorridors(sim: Boolean) {
         corr.items.clear()
+        corrUnder.items.clear()
         // Rota seçiliyse yalnızca rotadaki koridorlar; değilse hepsi (tanıma için saklananlar dahil)
         val ri = RouteSession.info
         val base = if (ri != null) {
@@ -186,8 +199,18 @@ class MapHolder(ctx: Context) : LiveMapView {
             }
         } else CorridorStore.all()
         val list = base + if (sim) listOf(CorridorStore.withOverride(Engine.DEMO)) else emptyList()
+        val dn = map.resources.displayMetrics.density
         for (c in list) {
-            if (c.path.size >= 2) {
+            val sl = ri?.slice(c.from, c.to)
+            if (sl != null) {
+                val pl = Polyline(map)
+                pl.setPoints(sl.map { GeoPoint(it.lat, it.lon) })
+                pl.outlinePaint.color = 0xFFE5322D.toInt()
+                pl.outlinePaint.strokeWidth = 17 * dn
+                pl.outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                pl.title = c.name
+                corrUnder.add(pl)
+            } else if (c.path.size >= 2) {
                 val pl = Polyline(map)
                 pl.setPoints(c.path.map { GeoPoint(it.lat, it.lon) })
                 pl.outlinePaint.color = 0xAAD62B2B.toInt()

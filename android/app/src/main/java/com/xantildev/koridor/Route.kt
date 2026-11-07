@@ -49,9 +49,9 @@ object RouteSession {
             for (i in 1 until line.size) c[i] = c[i - 1] + Geo.dist(line[i - 1], line[i])
         }
 
-        /** Rota üzerinde kalan mesafe; rotadan 1,5 km'den fazla uzaktaysa düz çizgi. */
-        fun remainingFrom(p: LatLng): Double {
-            if (line.size < 2) return Geo.dist(p, target.ll)
+        /** Noktanın rota üzerindeki konumu: (baştan metre, çizgiye uzaklık metre). */
+        fun project(p: LatLng): Pair<Double, Double> {
+            if (line.size < 2) return 0.0 to Geo.dist(p, target.ll)
             val kx = Math.cos(Math.toRadians(p.lat)) * 111320.0
             val ky = 110540.0
             var bestD = Double.MAX_VALUE
@@ -72,7 +72,38 @@ object RouteSession {
                     bestAlong = cum[i] + t * (cum[i + 1] - cum[i])
                 }
             }
-            return if (bestD > 1500) Geo.dist(p, target.ll) * 1.25 else (cum.last() - bestAlong).coerceAtLeast(0.0)
+            return bestAlong to bestD
+        }
+
+        /** Rota üzerinde kalan mesafe; rotadan 1,5 km'den fazla uzaktaysa düz çizgi. */
+        fun remainingFrom(p: LatLng): Double {
+            if (line.size < 2) return Geo.dist(p, target.ll)
+            val (along, d) = project(p)
+            return if (d > 1500) Geo.dist(p, target.ll) * 1.25 else (cum.last() - along).coerceAtLeast(0.0)
+        }
+
+        /** Rotanın a–b arasındaki parçası (koridoru rota üstünde kırmızı kenarla göstermek için). */
+        fun slice(a: LatLng, b: LatLng): List<LatLng>? {
+            if (line.size < 2) return null
+            val (s0, d0) = project(a)
+            val (s1, d1) = project(b)
+            if (d0 > 400 || d1 > 400 || s1 - s0 < 50) return null
+            val out = ArrayList<LatLng>()
+            out.add(pointAt(s0))
+            for (i in line.indices) if (cum[i] > s0 && cum[i] < s1) out.add(line[i])
+            out.add(pointAt(s1))
+            return out
+        }
+
+        private fun pointAt(s: Double): LatLng {
+            for (i in 0 until line.size - 1) {
+                if (cum[i + 1] >= s) {
+                    val seg = cum[i + 1] - cum[i]
+                    val t = if (seg > 0) ((s - cum[i]) / seg).coerceIn(0.0, 1.0) else 0.0
+                    return LatLng(line[i].lat + (line[i + 1].lat - line[i].lat) * t, line[i].lon + (line[i + 1].lon - line[i].lon) * t)
+                }
+            }
+            return line.last()
         }
     }
 
@@ -204,6 +235,7 @@ object RouteSession {
 
     fun onFix(p: LatLng, kmh: Int?) {
         val inf = info ?: return
+        Directions.onFix(p, kmh, inf)
         if (enforcement == null && enfAsked !== inf) refreshEnforcement(p)
         // Rotada radar noktası varsa her 30 km'de bir hatırlat
         val e = enforcement
@@ -369,6 +401,7 @@ object RouteSession {
                 val q = co.getJSONArray(i)
                 LatLng(q.getDouble(1), q.getDouble(0))
             }
+            Directions.store(line, Directions.fromOsrm(r))
             Triple(line, r.getDouble("distance"), r.getDouble("duration"))
         }
     }

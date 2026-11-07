@@ -55,6 +55,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
     private var trail: Polyline? = null
     private var you: Marker? = null
     private var hasFix = false
+    private var routeEdge: Polyline? = null
     override var navMode = false
     override var rightInsetPx = 0
     private val heading = HeadingTracker()
@@ -111,10 +112,17 @@ class GMapHolder(ctx: Context) : LiveMapView {
         val ri = RouteSession.info
         if (ri !== drawnRoute) {
             drawnRoute = ri
-            routeLine?.remove(); startM?.remove(); endM?.remove()
-            routeLine = null; startM = null; endM = null
+            routeLine?.remove(); routeEdge?.remove(); startM?.remove(); endM?.remove()
+            routeLine = null; routeEdge = null; startM = null; endM = null
             if (ri != null && ri.line.size >= 2) {
-                routeLine = m.addPolyline(PolylineOptions().addAll(ri.line.map { g(it) }).color(0xCC4DA3FF.toInt()).width(10 * density / 1.5f).zIndex(1f))
+                // Google Haritalar gibi: koyu kenarlı mavi rota; EDS koridorları rotanın etrafında kırmızı kenar
+                val pts = ri.line.map { g(it) }
+                routeEdge = m.addPolyline(PolylineOptions().addAll(pts).color(0xFF0B57D0.toInt()).width(12 * density).zIndex(1f)
+                    .startCap(com.google.android.gms.maps.model.RoundCap()).endCap(com.google.android.gms.maps.model.RoundCap())
+                    .jointType(com.google.android.gms.maps.model.JointType.ROUND))
+                routeLine = m.addPolyline(PolylineOptions().addAll(pts).color(0xFF4A8CFF.toInt()).width(8 * density).zIndex(1.2f)
+                    .startCap(com.google.android.gms.maps.model.RoundCap()).endCap(com.google.android.gms.maps.model.RoundCap())
+                    .jointType(com.google.android.gms.maps.model.JointType.ROUND))
                 startM = m.addMarker(MarkerOptions().position(g(ri.start)).icon(dot(0xFF2FBF71.toInt(), 0xFFFFFFFF.toInt(), 16)).anchor(0.5f, 0.5f).title("Başlangıç").snippet(ri.startLabel))
                 endM = m.addMarker(MarkerOptions().position(g(ri.target.ll)).icon(dot(0xFF4DA3FF.toInt(), 0xFFFFFFFF.toInt(), 18)).anchor(0.5f, 0.5f).title("Hedef: " + ri.target.name).snippet(ri.targetLabel))
                 val bb = LatLngBounds.builder()
@@ -125,7 +133,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
         if (s.track.size != lastTrackSize) {
             lastTrackSize = s.track.size
             val pts = s.track.map { g(it) }
-            if (trail == null) trail = m.addPolyline(PolylineOptions().color(0xFFF2B632.toInt()).width(8 * density / 1.5f).zIndex(3f))
+            if (trail == null) trail = m.addPolyline(PolylineOptions().color(0x99F2B632.toInt()).width(4 * density).zIndex(3f))
             trail?.points = pts
         }
         val p = s.pos
@@ -189,7 +197,11 @@ class GMapHolder(ctx: Context) : LiveMapView {
         val list = base + if (sim) listOf(CorridorStore.withOverride(Engine.DEMO)) else emptyList()
         val icon = dot(0xFFFFFFFF.toInt(), 0xFFD62B2B.toInt(), 14)
         for (c in list) {
-            if (c.path.size >= 2) {
+            val sl = ri?.slice(c.from, c.to)
+            if (sl != null) {
+                corrObjs.add(m.addPolyline(PolylineOptions().addAll(sl.map { g(it) }).color(0xFFE5322D.toInt()).width(17 * density).zIndex(0.9f)
+                    .jointType(com.google.android.gms.maps.model.JointType.ROUND)))
+            } else if (c.path.size >= 2) {
                 corrObjs.add(m.addPolyline(PolylineOptions().addAll(c.path.map { g(it) }).color(0xAAD62B2B.toInt()).width(7 * density / 1.5f).zIndex(2f)))
             }
             m.addMarker(

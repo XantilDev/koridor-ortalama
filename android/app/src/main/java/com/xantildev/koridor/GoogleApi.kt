@@ -101,12 +101,13 @@ object GoogleApi {
         val body = JSONObject().put("origin", wp(a)).put("destination", wp(b))
             .put("travelMode", "DRIVE").put("routingPreference", "TRAFFIC_UNAWARE").put("languageCode", "tr").put("units", "METRIC")
             .put("computeAlternativeRoutes", alternatives)
-        val o = post("https://routes.googleapis.com/directions/v2:computeRoutes", "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline", body)
+        val o = post("https://routes.googleapis.com/directions/v2:computeRoutes", "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.startLocation,routes.legs.steps.distanceMeters,routes.legs.steps.navigationInstruction", body)
         val arr = o.optJSONArray("routes") ?: JSONArray()
         val out = (0 until arr.length()).mapNotNull { i ->
             val r = arr.getJSONObject(i)
             val enc = r.optJSONObject("polyline")?.optString("encodedPolyline")?.ifBlank { null } ?: return@mapNotNull null
             val line = decode(enc)
+            Directions.store(line, Directions.fromGoogle(r))
             Triple(line, r.optDouble("distanceMeters", Geo.pathLength(line)), r.optString("duration").removeSuffix("s").toDoubleOrNull() ?: 0.0)
         }.take(3)
         if (out.isEmpty()) throw IOException("Google: rota bulunamadı")

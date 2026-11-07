@@ -113,6 +113,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
             Modifier.align(Alignment.TopStart).padding(10.dp).width(freeW.coerceAtLeast(120.dp)),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Directions.next?.let { NavBanner(it, wide) }
             if (s.approachC != null) ApproachBanner(s, big = wide)
             else {
                 val topChip = when {
@@ -267,6 +268,28 @@ private fun SpeedBox(sp: Int?, lim: Int?, roomy: Boolean, m: Modifier) {
 private fun etaText(sec: Double): String {
     val m = (sec / 60).roundToInt()
     return if (m >= 60) "${m / 60} sa ${m % 60} dk" else "$m dk"
+}
+
+/** Google Haritalar gibi yeşil yönlendirme kutusu: ok, mesafe, talimat; yakın ikinci manevra altta. */
+@Composable
+private fun NavBanner(n: Directions.Next, wide: Boolean) {
+    val green = Color(0xFF0F6B3E)
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(green)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(Directions.arrow(n.step.code), color = Color.White, fontSize = if (wide) 54.sp else 44.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(end = 10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(Directions.distText(n.distM), color = Color.White, fontSize = if (wide) 30.sp else 26.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(n.step.text, color = Color.White, fontSize = if (wide) 19.sp else 16.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        val a = n.after
+        if (a != null && n.afterGapM != null && n.afterGapM < 300 && a.code != "straight") {
+            Text("Sonra  ${Directions.arrow(a.code)}  ${a.text}", color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth().background(Color(0xFF0A4F2D)).padding(horizontal = 14.dp, vertical = 6.dp))
+        }
+    }
 }
 
 @Composable
