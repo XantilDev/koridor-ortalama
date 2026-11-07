@@ -46,6 +46,8 @@ class WebMapHolder(ctx: Context) : LiveMapView {
     }
 
     init {
+        // Harita bütün alanı kaplasın (AndroidView içinde WebView kendi içeriği kadar kalmasın)
+        wv.layoutParams = android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
         wv.settings.javaScriptEnabled = true
         wv.settings.domStorageEnabled = true
         wv.webViewClient = WebViewClient()
@@ -151,7 +153,7 @@ class WebMapHolder(ctx: Context) : LiveMapView {
         private val HTML = """
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#e9e5dc}
-#wrap{position:absolute;left:50%;top:50%}#map{width:100%;height:100%}
+#wrap{position:absolute;left:0;top:0;width:100%;height:100%}#map{width:100%;height:100%}
 .night #map{filter:invert(.92) hue-rotate(180deg) brightness(.9)}</style></head>
 <body><div id="wrap"><div id="map"></div></div>
 <script>
@@ -159,8 +161,12 @@ var map,vec=false,objs={route:[],corr:[],alts:[]},trail=null,you=null,lastNav=fa
 function gm_authFailure(){Android.fail()}
 function P(a){return {lat:a[0],lng:a[1]}}
 function clear(k){objs[k].forEach(function(o){o.setMap(null)});objs[k]=[]}
-function size(){var w=innerWidth,h=innerHeight,W=w,H=h;if(!vec){var d=Math.ceil(Math.sqrt(w*w+h*h));W=d;H=d}
- var el=document.getElementById('wrap');el.style.width=W+'px';el.style.height=H+'px';el.style.marginLeft=(-W/2)+'px';el.style.marginTop=(-H/2)+'px'}
+var lw=0,lh=0;
+function size(){var w=document.documentElement.clientWidth,h=document.documentElement.clientHeight,el=document.getElementById('wrap');
+ if(vec){el.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%'}
+ else{var d=Math.ceil(Math.sqrt(w*w+h*h));el.style.cssText='position:absolute;width:'+d+'px;height:'+d+'px;left:'+((w-d)/2)+'px;top:'+((h-d)/2)+'px;transform:'+(el.style.transform||'')}
+ if(map&&(w!=lw||h!=lh)){lw=w;lh=h;google.maps.event.trigger(map,'resize')}}
+setInterval(size,1000);
 function dot(p,fill,stroke,r,z){return new google.maps.Marker({map:map,position:p,zIndex:z,clickable:false,
  icon:{path:google.maps.SymbolPath.CIRCLE,scale:r,fillColor:fill,fillOpacity:1,strokeColor:stroke,strokeWeight:3}})}
 function init(){
