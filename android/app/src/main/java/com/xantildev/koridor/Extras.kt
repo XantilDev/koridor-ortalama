@@ -323,7 +323,7 @@ fun SettingsCard() {
         if (GoogleApi.enabled) {
             Text("Harita", color = XFg, fontWeight = FontWeight.SemiBold)
             Segments(listOf("google" to "Google", "osm" to "OpenStreetMap"), AppSettings.mapProvider, 46, 15) { AppSettings.chooseMap(it) }
-            Text("Google haritası açılmazsa (ör. Google hizmetleri olmayan araç ekranı) OpenStreetMap'e geç.", color = XMuted, fontSize = 12.sp)
+            Text("Google hizmetleri olmayan cihazlarda (araç ekranı) Google haritası web üzerinden açılır. Açılmazsa OpenStreetMap'e geç.", color = XMuted, fontSize = 12.sp)
         }
         Text("Gece modu (ekranı karartır)", color = XFg, fontWeight = FontWeight.SemiBold)
         Segments(listOf("oto" to "Otomatik", "acik" to "Açık", "kapali" to "Kapalı"), AppSettings.night, 46, 15) { AppSettings.chooseNight(it) }

@@ -2,6 +2,8 @@ package com.xantildev.koridor
 
 import android.content.Context
 import android.view.View
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /** Canlı harita: OpenStreetMap (osmdroid) ya da Google haritası aynı işleri yapar. */
 interface LiveMapView {
@@ -30,9 +32,15 @@ object MapChoice {
         }
     }
 
-    fun create(ctx: Context): LiveMapView = if (useGoogle(ctx)) {
-        try { GMapHolder(ctx) } catch (_: Throwable) { MapHolder(ctx) }
-    } else MapHolder(ctx)
+    /** Web haritası anahtar hatası verdiyse bu açılışta OpenStreetMap kullanılır. */
+    var webFailed by androidx.compose.runtime.mutableStateOf(false)
+
+    /** Google Play Hizmetleri yoksa (araç ekranı) Google haritası web üzerinden açılır. */
+    fun create(ctx: Context): LiveMapView = when {
+        useGoogle(ctx) -> try { GMapHolder(ctx) } catch (_: Throwable) { MapHolder(ctx) }
+        AppSettings.mapProvider == "google" && !webFailed -> try { WebMapHolder(ctx) } catch (_: Throwable) { MapHolder(ctx) }
+        else -> MapHolder(ctx)
+    }
 }
 
 /** Konum değişiminden gidiş yönü (derece, kuzey = 0). 12 m'den kısa hareketler ve 5 km/s altı yok sayılır. */

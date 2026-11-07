@@ -548,7 +548,7 @@ private fun WhatIf(s: UiState, onSetLimit: (Corridor) -> Unit) {
 @Composable
 internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false, controlsLeft: Boolean = false, nav: Boolean = false, rightInset: androidx.compose.ui.unit.Dp = 0.dp) {
     val ctx = LocalContext.current
-    val holder = remember(AppSettings.mapProvider) { MapChoice.create(ctx) }
+    val holder = remember(AppSettings.mapProvider, MapChoice.webFailed) { MapChoice.create(ctx) }
     var follow by remember { mutableStateOf(true) }
     holder.onUserPan = { follow = false }
     holder.navMode = nav
