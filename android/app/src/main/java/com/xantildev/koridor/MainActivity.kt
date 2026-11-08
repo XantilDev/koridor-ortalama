@@ -166,6 +166,7 @@ private fun Root(firstOpen: Boolean) {
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
     CrashReport()
     OfflineVoiceHost()
+    UpdateDialog()
     StartupPrompts(firstOpen, s)
     TripSummaryDialog()
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
