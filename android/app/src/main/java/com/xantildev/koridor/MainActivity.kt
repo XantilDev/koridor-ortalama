@@ -551,6 +551,9 @@ internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false, controlsLe
     val holder = remember(AppSettings.mapProvider, MapChoice.webFailed) { MapChoice.create(ctx) }
     var follow by remember { mutableStateOf(true) }
     holder.onUserPan = { follow = false }
+    var picked by remember { mutableStateOf<LatLng?>(null) }
+    holder.onLongPress = { picked = it; holder.setPin(it) }
+    picked?.let { pt -> PinDialog(pt) { picked = null; holder.setPin(null) } }
     holder.navMode = nav
     holder.rightInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { rightInset.roundToPx() }
     Box(Modifier.fillMaxSize()) {
@@ -578,6 +581,45 @@ internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false, controlsLe
         holder.resume()
         onDispose { holder.pause() }
     }
+}
+
+/** Haritada uzun basılan nokta: adı, "Buraya git", kaydet / ev / iş. */
+@Composable
+private fun PinDialog(pt: LatLng, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    var place by remember(pt) { mutableStateOf<Places.Place?>(null) }
+    var naming by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    LaunchedEffect(pt) { place = Places.reverse(pt); name = place?.name ?: "" }
+    val p = place ?: Places.Place("Haritadan seçilen nokta", "Adres alınıyor…", pt.lat, pt.lon, null)
+    val here = Places.currentLocation(ctx)
+    AlertDialog(
+        onDismissRequest = onDone,
+        title = { Text("📍 " + p.name, maxLines = 2) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(p.detail.ifBlank { "—" } + (here?.let { " · kuş uçuşu ${Geo.fmtKm(Geo.dist(it, pt))}" } ?: ""), fontSize = 14.sp)
+                if (naming) OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("İsim (ör. Çevrükler Makine)") })
+                else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { Places.saveSlot(ctx, "ev", p); Engine.say("Ev kaydedildi"); onDone() }, modifier = Modifier.weight(1f)) { Text("🏠 Ev yap", maxLines = 1) }
+                    OutlinedButton(onClick = { Places.saveSlot(ctx, "is", p); Engine.say("İş kaydedildi"); onDone() }, modifier = Modifier.weight(1f)) { Text("💼 İş yap", maxLines = 1) }
+                }
+            }
+        },
+        confirmButton = {
+            if (naming) TextButton(onClick = {
+                if (name.isNotBlank()) { Places.savePlace(ctx, name, p); Engine.say("${name.trim()} kaydedildi") }
+                onDone()
+            }) { Text("Kaydet", fontWeight = FontWeight.Bold) }
+            else Button(onClick = { RouteSession.go(ctx, p); onDone() }) { Text("🚗 Buraya git", fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = {
+            Row {
+                if (!naming) TextButton(onClick = { naming = true }) { Text("⭐ Kaydet") }
+                TextButton(onClick = onDone) { Text("Vazgeç") }
+            }
+        }
+    )
 }
 
 @Composable

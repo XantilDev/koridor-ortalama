@@ -56,6 +56,9 @@ class GMapHolder(ctx: Context) : LiveMapView {
     private var you: Marker? = null
     private var hasFix = false
     private var routeEdge: Polyline? = null
+    override var onLongPress: (LatLng) -> Unit = {}
+    private var pin: Marker? = null
+    private var pinAt: LatLng? = null
     override var navMode = false
     override var rightInsetPx = 0
     private val heading = HeadingTracker()
@@ -77,12 +80,21 @@ class GMapHolder(ctx: Context) : LiveMapView {
             m.moveCamera(CameraUpdateFactory.newLatLngZoom(GLatLng(39.0, 35.0), 6f))
             m.setOnCameraMoveStartedListener { r -> if (r == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) onUserPan() }
             m.setOnPolylineClickListener { pl -> (pl.tag as? Int)?.let { RouteSession.selectAlt(it) } }
+            m.setOnMapLongClickListener { ll -> onLongPress(LatLng(ll.latitude, ll.longitude)) }
+            pinAt?.let { setPin(it) }
             last?.let { (s, v, f) -> update(s, v, f) }
         }
         mv.setOnTouchListener { v, _ -> v.parent?.requestDisallowInterceptTouchEvent(true); false }
     }
 
     private fun g(p: LatLng) = GLatLng(p.lat, p.lon)
+
+    override fun setPin(p: LatLng?) {
+        pinAt = p
+        val m = gm ?: return
+        pin?.remove(); pin = null
+        if (p != null) pin = m.addMarker(MarkerOptions().position(g(p)).zIndex(30f))
+    }
 
     private fun dot(fill: Int, stroke: Int, dp: Int): BitmapDescriptor {
         val px = (dp * density).toInt().coerceAtLeast(8)

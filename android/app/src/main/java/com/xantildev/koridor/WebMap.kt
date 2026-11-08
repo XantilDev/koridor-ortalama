@@ -20,6 +20,9 @@ class WebMapHolder(ctx: Context) : LiveMapView {
     override var onUserPan: () -> Unit = {}
     override var navMode = false
     override var rightInsetPx = 0
+    override var onLongPress: (LatLng) -> Unit = {}
+    private var pinAt: LatLng? = null
+    override fun setPin(p: LatLng?) { pinAt = p; js(if (p == null) "setPin(null)" else "setPin([${p.lat},${p.lon}])") }
 
     private val main = Handler(Looper.getMainLooper())
     private val density = ctx.resources.displayMetrics.density
@@ -41,7 +44,8 @@ class WebMapHolder(ctx: Context) : LiveMapView {
     inner class Bridge {
         @JavascriptInterface fun pan() { main.post { onUserPan() } }
         @JavascriptInterface fun alt(i: Int) { main.post { RouteSession.selectAlt(i) } }
-        @JavascriptInterface fun ready() { main.post { ready = true; reset(); last?.let { (s, v, f) -> update(s, v, f) } } }
+        @JavascriptInterface fun ready() { main.post { ready = true; reset(); last?.let { (s, v, f) -> update(s, v, f) }; pinAt?.let { setPin(it) } } }
+        @JavascriptInterface fun press(lat: Double, lon: Double) { main.post { onLongPress(LatLng(lat, lon)) } }
         @JavascriptInterface fun fail() { main.post { MapChoice.webFailed = true } }
     }
 
@@ -161,6 +165,8 @@ class WebMapHolder(ctx: Context) : LiveMapView {
 .night #map{filter:invert(.92) hue-rotate(180deg) brightness(.9)}</style></head>
 <body><div id="wrap"><div id="map"></div></div>
 <script>
+var lp=null,pin=null;
+function setPin(a){if(pin){pin.setMap(null);pin=null}if(a)pin=new google.maps.Marker({map:map,position:P(a),zIndex:30})}
 var map,vec=false,objs={route:[],corr:[],alts:[]},trail=null,you=null,lastNav=false;
 function gm_authFailure(){Android.fail()}
 function P(a){return {lat:a[0],lng:a[1]}}
@@ -176,7 +182,11 @@ function dot(p,fill,stroke,r,z){return new google.maps.Marker({map:map,position:
 function init(){
  map=new google.maps.Map(document.getElementById('map'),{center:{lat:39,lng:35},zoom:6,mapId:'DEMO_MAP_ID',renderingType:'VECTOR',
   disableDefaultUI:true,clickableIcons:false,gestureHandling:'greedy',keyboardShortcuts:false});
- map.addListener('dragstart',function(){Android.pan()});
+ map.addListener('dragstart',function(){Android.pan();clearTimeout(lp)});
+ // Uzun basma: dokunmada 'contextmenu' gelmeyebilir, basılı tutma süresiyle anlaşılır
+ map.addListener('mousedown',function(e){clearTimeout(lp);var ll=e.latLng;lp=setTimeout(function(){Android.press(ll.lat(),ll.lng())},650)});
+ map.addListener('mouseup',function(){clearTimeout(lp)});
+ map.addListener('contextmenu',function(e){clearTimeout(lp);Android.press(e.latLng.lat(),e.latLng.lng())});
  map.addListener('heading_changed',function(){curH=map.getHeading()||0;if(you&&lastH!=null)you.setIcon(Object.assign({},you.getIcon(),{rotation:arrowRot(lastH)}))});
  var done=false;function go(){if(done)return;done=true;vec=map.getRenderingType&&map.getRenderingType()==='VECTOR';size();
   google.maps.event.trigger(map,'resize');Android.ready()}

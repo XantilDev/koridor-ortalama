@@ -12,6 +12,10 @@ interface LiveMapView {
     /** Büyük sürüş ekranı: gidiş yönü yukarıda, araç ekranın alt kısmında; sağdaki panelin genişliği (px). */
     var navMode: Boolean
     var rightInsetPx: Int
+    /** Haritaya uzun basınca (yol tarifi için nokta seçme). */
+    var onLongPress: (LatLng) -> Unit
+    /** Seçilen noktayı iğne ile göster (null: kaldır). */
+    fun setPin(p: LatLng?)
     fun update(s: UiState, ver: Int, follow: Boolean)
     fun recenter(s: UiState)
     fun zoomIn()

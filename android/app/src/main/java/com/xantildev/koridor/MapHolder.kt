@@ -62,6 +62,14 @@ class MapHolder(ctx: Context) : LiveMapView {
     override var navMode = false
     override var rightInsetPx = 0
     private val heading = HeadingTracker()
+    override var onLongPress: (LatLng) -> Unit = {}
+    private val pin = Marker(map).apply { setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM) }
+
+    override fun setPin(p: LatLng?) {
+        map.overlays.remove(pin)
+        if (p != null) { pin.position = GeoPoint(p.lat, p.lon); map.overlays.add(pin) }
+        map.invalidate()
+    }
     private var arrowOn = false
     private var lastTrackSize = -1
 
@@ -90,6 +98,13 @@ class MapHolder(ctx: Context) : LiveMapView {
         map.overlays.add(routeLine)
         map.overlays.add(corr)
         map.overlays.add(trail)
+        map.overlays.add(0, org.osmdroid.views.overlay.MapEventsOverlay(object : org.osmdroid.events.MapEventsReceiver {
+            override fun singleTapConfirmedHelper(p: GeoPoint?) = false
+            override fun longPressHelper(p: GeoPoint?): Boolean {
+                p ?: return false
+                onLongPress(LatLng(p.latitude, p.longitude)); return true
+            }
+        }))
         map.setOnTouchListener { v, ev ->
             v.parent?.requestDisallowInterceptTouchEvent(true)
             if (ev.action == MotionEvent.ACTION_MOVE) onUserPan()

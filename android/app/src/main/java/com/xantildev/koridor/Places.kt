@@ -71,6 +71,22 @@ object Places {
         }
     }
 
+    /** Haritadan seçilen noktanın adı (OSM; yoksa koordinat). */
+    suspend fun reverse(p: LatLng): Place = withContext(Dispatchers.IO) {
+        try {
+            val o = JSONObject(get("https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&lat=${p.lat}&lon=${p.lon}"))
+            val a = o.optJSONObject("address")
+            val full = o.optString("display_name")
+            val parts = full.split(",").map { it.trim() }
+            val name = o.optString("name").ifBlank {
+                listOfNotNull(a?.optString("road")?.takeIf { it.isNotBlank() }, a?.optString("house_number")?.takeIf { it.isNotBlank() }).joinToString(" ")
+            }.ifBlank { parts.firstOrNull() ?: "Haritadan seçilen nokta" }
+            Place(name, parts.drop(1).take(4).joinToString(", "), p.lat, p.lon, province(a))
+        } catch (_: Exception) {
+            Place("Haritadan seçilen nokta", String.format(java.util.Locale.US, "%.5f, %.5f", p.lat, p.lon), p.lat, p.lon, null)
+        }
+    }
+
     suspend fun provinceAt(p: LatLng): String? = withContext(Dispatchers.IO) {
         val o = JSONObject(get("https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=10&lat=${p.lat}&lon=${p.lon}"))
         province(o.optJSONObject("address"))
