@@ -115,7 +115,8 @@ class WebMapHolder(ctx: Context) : LiveMapView {
         val alts = RouteSession.shownAlts
         if (alts !== altsKey || RouteSession.altIndex != altIdx) {
             altsKey = alts; altIdx = RouteSession.altIndex
-            js("setAlts([${alts.joinToString(",") { pts(it.line) }}],${RouteSession.altIndex})")
+            val labels = alts.indices.joinToString(",") { i -> "{\"p\":${pts(listOf(alts[i].labelAt)).removePrefix("[").removeSuffix("]")},\"t\":${q(RouteSession.altLabel(i))}}" }
+            js("setAlts([${alts.joinToString(",") { pts(it.line) }}],${RouteSession.altIndex},[$labels],${RouteSession.previewing})")
         }
         // Geçilen iz (yalnız yeni noktalar)
         val tr = s.track
@@ -131,10 +132,11 @@ class WebMapHolder(ctx: Context) : LiveMapView {
             val nav = navMode && AppSettings.headingUp && s.driving
             val inset = (rightInsetPx / density).toInt()
             val z = if (nav) NavZoom.of(s.speedKmh) else 17f
-            val key = "${p.lat},${p.lon},$h,$follow,$nav,$inset,$z"
+            val fol = follow && !RouteSession.previewing
+            val key = "${p.lat},${p.lon},$h,$fol,$nav,$inset,$z"
             if (key != posKey) {
                 posKey = key
-                js("setPos(${p.lat},${p.lon},${h ?: "null"},$follow,$nav,$inset,${!hadFix},$z)")
+                js("setPos(${p.lat},${p.lon},${h ?: "null"},$fol,$nav,$inset,${!hadFix && !RouteSession.previewing},$z)")
                 hadFix = true
             }
         } else if (hadFix) { hadFix = false; js("clearPos()") }
@@ -204,9 +206,16 @@ function setCorr(list){clear('corr');list.forEach(function(c){
  if(c.s)objs.corr.push(new google.maps.Polyline({map:map,path:c.s.map(P),strokeColor:'#E5322D',strokeWeight:17,zIndex:9}));
  else if(c.p)objs.corr.push(new google.maps.Polyline({map:map,path:c.p.map(P),strokeColor:'#D62B2B',strokeOpacity:.7,strokeWeight:5,zIndex:12}));
  var m=dot(P(c.f),'#ffffff','#D62B2B',5,13);m.setTitle(c.t);objs.corr.push(m)})}
-function setAlts(list,sel){clear('alts');list.forEach(function(l,i){if(i==sel)return;
+var fitDone=null;
+function lab(t,on){var w=t.length*9+28;var s='<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="36"><rect x="1" y="1" rx="12" width="'+(w-2)+'" height="34" fill="'+(on?'#1A73E8':'#FFFFFF')+'" stroke="'+(on?'#1A73E8':'#9AA4B2')+'" stroke-width="2"/><text x="13" y="24" font-family="sans-serif" font-weight="700" font-size="16" fill="'+(on?'#FFFFFF':'#111827')+'">'+t.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</text></svg>';
+ return {url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(s),anchor:new google.maps.Point(w/2,36)}}
+function setAlts(list,sel,labels,preview){clear('alts');list.forEach(function(l,i){if(i==sel)return;
  var pl=new google.maps.Polyline({map:map,path:l.map(P),strokeColor:'#8A96A3',strokeOpacity:.85,strokeWeight:8,zIndex:5});
- pl.addListener('click',function(){Android.alt(i)});objs.alts.push(pl)})}
+ pl.addListener('click',function(){Android.alt(i)});objs.alts.push(pl)});
+ (labels||[]).forEach(function(L,i){var mk=new google.maps.Marker({map:map,position:P(L.p),zIndex:25,icon:lab(L.t,i==sel)});
+  mk.addListener('click',function(){Android.alt(i)});objs.alts.push(mk)});
+ if(preview&&list.length&&fitDone!==list.length+':'+list[0].length){fitDone=list.length+':'+list[0].length;var b=new google.maps.LatLngBounds();
+  list.forEach(function(l){l.forEach(function(a){b.extend(P(a))})});map.fitBounds(b,60);if(vec)map.moveCamera({heading:0,tilt:0})}}
 function setTrail(pts,reset){if(!trail)trail=new google.maps.Polyline({map:map,path:[],strokeColor:'#F2B632',strokeOpacity:.6,strokeWeight:4,zIndex:14});
  var p=trail.getPath();if(reset)p.clear();pts.forEach(function(a){p.push(new google.maps.LatLng(a[0],a[1]))})}
 function move(p,brg,d){var b=brg*Math.PI/180;return {lat:p.lat+d*Math.cos(b)/111320,lng:p.lng+d*Math.sin(b)/(111320*Math.cos(p.lat*Math.PI/180))}}

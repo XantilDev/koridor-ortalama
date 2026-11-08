@@ -36,12 +36,31 @@ class MapHolder(ctx: Context) : LiveMapView {
     private var drawnAltIndex = -1
 
     /** Seçilmeyen rota seçenekleri gri; dokununca o rota seçilir. */
+    private val altLabels = ArrayList<Marker>()
+    private var fittedAlts: Any? = null
+
     private fun drawAlts() {
         val alts = RouteSession.shownAlts
         if (alts === drawnAlts && RouteSession.altIndex == drawnAltIndex) return
         drawnAlts = alts; drawnAltIndex = RouteSession.altIndex
         altLines.forEach { map.overlays.remove(it) }
         altLines.clear()
+        altLabels.forEach { map.overlays.remove(it) }
+        altLabels.clear()
+        val dn = map.resources.displayMetrics.density
+        alts.forEachIndexed { i, a ->
+            val mk = Marker(map)
+            mk.position = GeoPoint(a.labelAt.lat, a.labelAt.lon)
+            mk.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            mk.icon = android.graphics.drawable.BitmapDrawable(map.resources, labelBitmap(RouteSession.altLabel(i), i == RouteSession.altIndex, dn))
+            mk.setOnMarkerClickListener { _, _ -> RouteSession.selectAlt(i); true }
+            altLabels.add(mk)
+            map.overlays.add(mk)
+        }
+        if (RouteSession.previewing && alts.isNotEmpty() && alts !== fittedAlts) {
+            fittedAlts = alts
+            fitWhenReady(org.osmdroid.util.BoundingBox.fromGeoPoints(alts.flatMap { a -> a.line.map { GeoPoint(it.lat, it.lon) } }), 0)
+        }
         alts.forEachIndexed { i, a ->
             if (i == RouteSession.altIndex) return@forEachIndexed
             val pl = Polyline(map)
@@ -171,7 +190,9 @@ class MapHolder(ctx: Context) : LiveMapView {
             // Navigasyon: gidiş yönü yukarıda, araç ekranın alt kısmında ve sağ panelin solunda
             map.setMapCenterOffset(-rightInsetPx / 2, if (nav) (map.height * 0.2f).toInt() else 0)
             map.mapOrientation = if (nav) (h?.let { -it } ?: map.mapOrientation) else 0f
-            if (!hasFix) {
+            if (RouteSession.previewing) {
+                hasFix = true   // önizlemede kamera rotaların üstünde kalır
+            } else if (!hasFix) {
                 hasFix = true
                 map.controller.setZoom(if (nav) NavZoom.of(s.speedKmh).toDouble() else 17.0)
                 map.controller.setCenter(gp)

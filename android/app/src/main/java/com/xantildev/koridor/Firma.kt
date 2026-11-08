@@ -36,12 +36,18 @@ object AppSettings {
         night = prefs.getString("gece", "oto") ?: "oto"
         overlay = prefs.getBoolean("gosterge", true)
         headingUp = prefs.getBoolean("yon_yukari", true)
+        avoidTolls = prefs.getBoolean("ucretsiz_yol", false)
         loadMap()
     }
 
     /** Haritada gidiş yönü yukarıda (navigasyon gibi); kapalıysa kuzey yukarıda. */
     var headingUp by mutableStateOf(true)
         private set
+    /** Rota hesabında ücretli yollar (otoyol, köprü) kullanılmasın. */
+    var avoidTolls by mutableStateOf(false)
+        private set
+    fun chooseAvoidTolls(v: Boolean) { avoidTolls = v; prefs.edit().putBoolean("ucretsiz_yol", v).apply() }
+
     fun chooseHeadingUp(v: Boolean) { headingUp = v; prefs.edit().putBoolean("yon_yukari", v).apply() }
 
     fun chooseOverlay(v: Boolean) { overlay = v; prefs.edit().putBoolean("gosterge", v).apply() }

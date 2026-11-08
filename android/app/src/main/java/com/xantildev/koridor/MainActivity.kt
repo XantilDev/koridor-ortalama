@@ -170,7 +170,7 @@ private fun Root(firstOpen: Boolean) {
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     // Gece modu: bütün ekranı karartır (dokunmaları engellemez)
     val dim = if (AppSettings.isNight()) Modifier.drawWithContent { drawContent(); drawRect(Color.Black.copy(alpha = 0.38f)) } else Modifier
-    if (tab == 0 && Nav.big && (s.driving || wide)) {
+    if (tab == 0 && Nav.big) {
         Box(Modifier.fillMaxSize().then(dim).statusBarsPadding().navigationBarsPadding()) { BigDrive(s) { Nav.big = false } }
         return
     }
@@ -267,7 +267,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         val talk = rememberVoice()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = talk, modifier = Modifier.weight(1f).height(52.dp)) { Text("🎤 Konuş", color = Fg, fontSize = 17.sp) }
-            if (s.driving) OutlinedButton(onClick = { Nav.big = true }, modifier = Modifier.weight(1f).height(52.dp)) { Text("Büyük ekran", color = Fg, fontSize = 17.sp) }
+            OutlinedButton(onClick = { Nav.big = true }, modifier = Modifier.weight(1f).height(52.dp)) { Text("🗺 Harita", color = Fg, fontSize = 17.sp) }
         }
         RouteSession.retryText?.let { NoteBox(it, Warn) }
         if (route != null) RouteSession.enforcement?.text?.let { NoteBox("🚓 $it (EGM yeri açıklamıyor; anlık sayı)", Accent) }

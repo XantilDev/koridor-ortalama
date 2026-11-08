@@ -43,7 +43,7 @@ object Voice {
                     ?: Places.savedList(ctx).firstOrNull { q.contains(norm(it.name)) || norm(it.name).contains(q) }
                 if (saved != null) {
                     Engine.say("${saved.name} rotası hazırlanıyor.")
-                    Nav.tab = 1
+                    Nav.tab = 0; Nav.big = true
                     RouteSession.go(ctx, saved)
                     return
                 }
@@ -59,7 +59,7 @@ object Voice {
                         RouteSession.query = said
                         Nav.tab = 1
                     } else {
-                        Nav.tab = 1
+                        Nav.tab = 0; Nav.big = true
                         RouteSession.go(ctx, hit)
                     }
                 }
@@ -74,7 +74,7 @@ object Voice {
             Nav.tab = 1
         } else {
             Engine.say("$label rotası hazırlanıyor.")
-            Nav.tab = 1
+            Nav.tab = 0; Nav.big = true
             RouteSession.go(ctx, p)
         }
     }

@@ -65,9 +65,16 @@ object GoogleApi {
     }
 
     /** Firma/adres arama (Places API New · Text Search). Yakındaki sonuçlar öne çıkar. */
-    suspend fun search(q: String, near: LatLng?): List<Places.Place> = withContext(Dispatchers.IO) {
-        val body = JSONObject().put("textQuery", q).put("languageCode", "tr").put("regionCode", "TR").put("pageSize", 8)
-        if (near != null) {
+    suspend fun search(q: String, near: LatLng?, type: String? = null, along: List<LatLng>? = null): List<Places.Place> = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("textQuery", q).put("languageCode", "tr").put("regionCode", "TR").put("pageSize", if (type != null) 15 else 8)
+        if (type != null) body.put("includedType", type)
+        if (along != null && along.size >= 2) {
+            // Rota boyunca arama: çizgi en fazla ~400 noktaya seyreltilir
+            val step = maxOf(1, along.size / 400)
+            val thin = along.filterIndexed { i, _ -> i % step == 0 } + along.last()
+            body.put("searchAlongRouteParameters", JSONObject().put("polyline", JSONObject().put("encodedPolyline", encode(thin))))
+        }
+        if (near != null && along == null) {
             body.put("locationBias", JSONObject().put("circle", JSONObject()
                 .put("center", JSONObject().put("latitude", near.lat).put("longitude", near.lon)).put("radius", 50000.0)))
         }
@@ -101,6 +108,7 @@ object GoogleApi {
         val body = JSONObject().put("origin", wp(a)).put("destination", wp(b))
             .put("travelMode", "DRIVE").put("routingPreference", "TRAFFIC_UNAWARE").put("languageCode", "tr").put("units", "METRIC")
             .put("computeAlternativeRoutes", alternatives)
+        if (AppSettings.avoidTolls) body.put("routeModifiers", JSONObject().put("avoidTolls", true))
         val o = post("https://routes.googleapis.com/directions/v2:computeRoutes", "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.startLocation,routes.legs.steps.distanceMeters,routes.legs.steps.navigationInstruction", body)
         val arr = o.optJSONArray("routes") ?: JSONArray()
         val out = (0 until arr.length()).mapNotNull { i ->

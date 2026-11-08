@@ -87,6 +87,30 @@ object Places {
         }
     }
 
+    /** Şarj istasyonları: rota varsa yol boyunca, yoksa yakında (Google; yoksa OpenStreetMap). Yakından uzağa. */
+    suspend fun charging(near: LatLng, along: List<LatLng>?): List<Place> {
+        val list = try {
+            if (GoogleApi.enabled) GoogleApi.search("elektrikli araç şarj istasyonu", near, "electric_vehicle_charging_station", along)
+            else chargingOsm(near)
+        } catch (_: Exception) {
+            chargingOsm(near)
+        }
+        return list.sortedBy { Geo.dist(near, it.ll) }
+    }
+
+    private suspend fun chargingOsm(near: LatLng): List<Place> = withContext(Dispatchers.IO) {
+        val q = "[out:json][timeout:20];node[amenity=charging_station](around:20000,${near.lat},${near.lon});out 30;"
+        val o = JSONObject(get("https://overpass-api.de/api/interpreter?data=" + java.net.URLEncoder.encode(q, "UTF-8")))
+        val a = o.optJSONArray("elements") ?: return@withContext emptyList()
+        (0 until a.length()).mapNotNull { i ->
+            val e = a.getJSONObject(i)
+            val t = e.optJSONObject("tags")
+            val name = t?.optString("name")?.ifBlank { null } ?: t?.optString("operator")?.ifBlank { null } ?: "Şarj istasyonu"
+            Place(name, listOfNotNull(t?.optString("operator")?.ifBlank { null }, t?.optString("addr:street")?.ifBlank { null }).joinToString(" · "),
+                e.getDouble("lat"), e.getDouble("lon"), null)
+        }
+    }
+
     suspend fun provinceAt(p: LatLng): String? = withContext(Dispatchers.IO) {
         val o = JSONObject(get("https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=10&lat=${p.lat}&lon=${p.lon}"))
         province(o.optJSONObject("address"))

@@ -17,6 +17,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 /** Açık sekme: başka ekrandan (ör. Google Haritalar paylaşımı) yönlendirmek için. */
 object Nav {
@@ -119,6 +120,39 @@ object RouteSession {
     /** Alternatif rota: çizgi, km, süre ve üstündeki koridorlar. */
     class Alt(val line: List<LatLng>, val distM: Double, val durS: Double, val corridors: List<Corridor>) {
         val edsKm: Double get() = corridors.sumOf { it.lengthM } / 1000
+        /** Haritadaki etiketin yeri: bu rotanın diğerlerinden en çok ayrıldığı nokta. */
+        var labelAt: LatLng = line[line.size / 2]
+    }
+
+    /** Hedef seçildi, rota önizleniyor: harita bütün seçenekleri gösterir, "Başlat" beklenir (araç hareket edince de başlar). */
+    var previewing by mutableStateOf(false)
+        private set
+
+    /** "Başlat": önizleme biter, sürüş ve yol tarifi başlar, harita araca yakınlaşır. */
+    fun startNav(ctx: Context) {
+        previewing = false
+        altPicked = true
+        if (!Engine.state.value.driving && hasLocation(ctx)) TrackingService.start(ctx)
+    }
+
+    /** Araç hareket edip sürüş kendiliğinden başladı. */
+    fun onTripBegan() { if (previewing) { previewing = false; altPicked = true } }
+
+    fun altLabel(i: Int): String {
+        val a = alts.getOrNull(i) ?: return ""
+        val m = (a.durS / 60).roundToInt()
+        val best = alts.minOf { it.durS }
+        val extra = ((a.durS - best) / 60).roundToInt()
+        return "${"ABC"[i]} · " + (if (m >= 60) "${m / 60} sa ${m % 60} dk" else "$m dk") + if (extra > 0) " (+$extra)" else ""
+    }
+
+    private fun placeLabels(list: List<Alt>) {
+        list.forEachIndexed { i, a ->
+            val others = list.filterIndexed { j, _ -> j != i }.map { o -> o.line.filterIndexed { k, _ -> k % 6 == 0 } }
+            if (others.isEmpty() || a.line.size < 3) return@forEachIndexed
+            val cand = a.line.filterIndexed { k, _ -> k % 5 == 0 && k > a.line.size / 10 && k < a.line.size * 9 / 10 }
+            cand.maxByOrNull { p -> others.minOf { Geo.distToLine(p, it) } }?.let { a.labelAt = it }
+        }
     }
 
     /** Hedefe giden seçenekler (en fazla 3) ve seçili olan */
@@ -135,8 +169,8 @@ object RouteSession {
     fun selectAlt(i: Int) {
         val a = alts.getOrNull(i) ?: return
         val cur = info ?: return
-        altPicked = true
-        if (i == altIndex) { Engine.say("Rota ${"ABC"[i]} seçildi."); return }
+        if (!previewing) altPicked = true
+        if (i == altIndex) { if (!previewing) Engine.say("Rota ${"ABC"[i]} seçildi."); return }
         altIndex = i
         info = Info(cur.target, a.corridors, a.line, a.distM, a.durS, cur.start, cur.startLabel, cur.targetLabel, "yol", cur.corridorsMissing)
         offSince = 0
@@ -160,6 +194,7 @@ object RouteSession {
         msg = null
         alts = emptyList()
         altIndex = 0
+        previewing = false
     }
 
     /** trafik.gov.tr'den iki ilçe arasındaki bütün koridorlar (filtresiz). */
@@ -320,8 +355,12 @@ object RouteSession {
         ctxApp = ctx.applicationContext
         offSince = 0; reroutes = 0
         // Yeni hedef: eski sürüş kaydedilip bitirilir, yenisi sıfırdan başlar (hedef değişmeden önce, eski hedefle kaydedilsin)
-        if (Engine.tracking && info?.target != p) Engine.newTrip()
-        else if (!Engine.tracking && hasLocation(ctx)) TrackingService.start(ctx)   // hedef seçilince sürüş başlar
+        // Sürüş sürerken yeni hedef: eski yolculuk kaydedilir, yenisi hemen başlar (önizleme yok).
+        // Sürüş yokken: rota önizlenir, "Başlat"a basınca (ya da araç hareket edince) başlar.
+        val drivingNow = Engine.state.value.driving
+        if (drivingNow && info?.target != p) Engine.newTrip()
+        else if (!Engine.tracking && hasLocation(ctx)) TrackingService.start(ctx, standby = true)
+        previewing = !drivingNow
         retryJob?.cancel()
         retryText = null
         busy = true
@@ -364,6 +403,7 @@ object RouteSession {
                 err = "Koridor bilgisi şu an alınamadı (${e.message ?: "bağlantı hatası"}). Sürüş boyunca arada tekrar denenecek."
             }
             val altList = roads.map { (ln, d, t) -> Alt(ln, d, t, pool.filter { onLine(it, ln) }) }
+            placeLabels(altList)
             alts = if (altList.size > 1) altList else emptyList()
             altIndex = 0
             altPicked = false
@@ -392,8 +432,8 @@ object RouteSession {
     private suspend fun osrm(a: LatLng, b: LatLng): Triple<List<LatLng>, Double, Double> = osrmAll(a, b, false).first()
 
     private suspend fun osrmAll(a: LatLng, b: LatLng, alternatives: Boolean): List<Triple<List<LatLng>, Double, Double>> = withContext(Dispatchers.IO) {
-        val url = "https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=full&geometries=geojson" +
-            if (alternatives) "&alternatives=3" else ""
+        val url = "https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=full&geometries=geojson&steps=true" +
+            (if (AppSettings.avoidTolls) "&exclude=toll" else "") + (if (alternatives) "&alternatives=3" else "")
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 20000
@@ -415,7 +455,7 @@ object RouteSession {
 
     /** Google Haritalar'dan paylaşılan metni (isim + kısa link) bir yere çevirir. */
     fun fromShared(ctx: Context, text: String) {
-        Nav.tab = 1
+        Nav.tab = 0; Nav.big = true
         busy = true
         msg = "Google Haritalar'dan gelen yer çözülüyor…"
         msgBad = false
@@ -431,6 +471,7 @@ object RouteSession {
                     if (lastSharedDebug.isNotBlank()) "\n(Link: $lastSharedDebug)" else ""
                 msgBad = true
                 query = text.lineSequence().firstOrNull { it.isNotBlank() && !it.contains("http") }?.trim() ?: ""
+                Nav.tab = 1
             } else {
                 go(ctx, p)
             }

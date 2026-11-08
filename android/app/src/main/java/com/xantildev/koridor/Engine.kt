@@ -317,11 +317,12 @@ object Engine {
         if (d < 150 || (d < 300 && (speedKmh ?: 99) < 15)) {
             arrivedFor = tgt.name
             arrivedAt = tgt.name
-            say("Hedefe vardın. İstersen sürüşü bitirebilirsin.")
+            say("Hedefe vardın.")
         }
     }
 
     private var movingSince: Long? = null
+    private var stillSince = 0L
     private var lastEndAt: LatLng? = null
     private var lastMoveWall = 0L
     /** Hazır durumda uzun süre hareket olmazsa takibi kapatmak için (servis bağlar). */
@@ -361,6 +362,7 @@ object Engine {
         if (mode != "bekle") return
         lastEndAt = null
         startTracking("gps")
+        RouteSession.onTripBegan()
         say("Sürüş başladı.")
     }
 
@@ -475,6 +477,17 @@ object Engine {
         if (lastFull == null || Geo.dist(lastFull, f.ll) > 25) fullTrack.add(f.ll)
         checkpoint()
         checkArrival(f.ll)
+        // Otomatik bitiş: hedefe varıp 1 dk durunca ya da 10 dk hareketsiz kalınca yolculuk kaydedilir
+        if (mode == "gps") {
+            if ((speedKmh ?: 0) < 4) { if (stillSince == 0L) stillSince = f.t } else stillSince = 0L
+            val still = if (stillSince > 0) f.t - stillSince else 0L
+            val atTarget = arrivedFor != null && arrivedFor == RouteSession.info?.target?.name
+            if (still > 10 * 60_000L || (atTarget && still > 60_000L)) {
+                stillSince = 0L
+                endTrip()
+                return
+            }
+        }
         if (mode == "gps") RouteSession.onFix(f.ll, speedKmh)
         if (run == null) checkRoadLimit(f.ll)
 

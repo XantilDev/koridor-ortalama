@@ -35,12 +35,30 @@ class GMapHolder(ctx: Context) : LiveMapView {
     private var drawnAltIndex = -1
 
     /** Seçilmeyen rota seçenekleri gri; dokununca o rota seçilir. */
+    private val altLabels = ArrayList<Marker>()
+    private var fittedAlts: Any? = null
+
     private fun drawAlts(m: GoogleMap) {
         val alts = RouteSession.shownAlts
         if (alts === drawnAlts && RouteSession.altIndex == drawnAltIndex) return
         drawnAlts = alts; drawnAltIndex = RouteSession.altIndex
         altLines.forEach { it.remove() }
         altLines.clear()
+        altLabels.forEach { it.remove() }
+        altLabels.clear()
+        // Etiketler: "A · 7 dk" — dokununca o rota seçilir
+        alts.forEachIndexed { i, a ->
+            m.addMarker(MarkerOptions().position(g(a.labelAt)).zIndex(25f).anchor(0.5f, 1f)
+                .icon(BitmapDescriptorFactory.fromBitmap(labelBitmap(RouteSession.altLabel(i), i == RouteSession.altIndex, density))))
+                ?.also { it.tag = i; altLabels.add(it) }
+        }
+        // Önizlemede bütün seçenekler ekrana sığsın
+        if (RouteSession.previewing && alts.isNotEmpty() && alts !== fittedAlts) {
+            fittedAlts = alts
+            val bb = LatLngBounds.builder()
+            alts.forEach { a -> a.line.forEach { bb.include(g(it)) } }
+            fit(m, bb.build(), 0)
+        }
         alts.forEachIndexed { i, a ->
             if (i == RouteSession.altIndex) return@forEachIndexed
             val pl = m.addPolyline(PolylineOptions().addAll(a.line.map { g(it) }).color(0xCC8A96A3.toInt()).width(9 * density / 1.5f).zIndex(0.5f).clickable(true))
@@ -80,6 +98,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
             m.moveCamera(CameraUpdateFactory.newLatLngZoom(GLatLng(39.0, 35.0), 6f))
             m.setOnCameraMoveStartedListener { r -> if (r == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) onUserPan() }
             m.setOnPolylineClickListener { pl -> (pl.tag as? Int)?.let { RouteSession.selectAlt(it) } }
+            m.setOnMarkerClickListener { mk -> (mk.tag as? Int)?.let { RouteSession.selectAlt(it); true } ?: false }
             m.setOnMapLongClickListener { ll -> onLongPress(LatLng(ll.latitude, ll.longitude)) }
             pinAt?.let { setPin(it) }
             last?.let { (s, v, f) -> update(s, v, f) }
@@ -167,7 +186,9 @@ class GMapHolder(ctx: Context) : LiveMapView {
                 padKey = pk
                 m.setPadding(0, if (nav) (mv.height * 0.4f).toInt() else 0, rightInsetPx, 0)
             }
-            if (!hasFix) {
+            if (RouteSession.previewing) {
+                hasFix = true   // önizlemede kamera rotaların üstünde kalır
+            } else if (!hasFix) {
                 hasFix = true
                 m.moveCamera(CameraUpdateFactory.newLatLngZoom(gp, if (nav) NavZoom.of(s.speedKmh) else 17f))
             } else if (follow && nav && (gp != lastCam || h != lastH)) {

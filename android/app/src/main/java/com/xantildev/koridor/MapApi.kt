@@ -120,3 +120,27 @@ object NavZoom {
         return (base + bias).coerceIn(13f, 20f)
     }
 }
+
+/** Haritadaki rota etiketi ("A · 7 dk"): seçili olan mavi, diğerleri beyaz. */
+fun labelBitmap(text: String, selected: Boolean, density: Float): android.graphics.Bitmap {
+    val tp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 16 * density
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        color = if (selected) 0xFFFFFFFF.toInt() else 0xFF111827.toInt()
+    }
+    val w = (tp.measureText(text) + 26 * density).toInt()
+    val h = (36 * density).toInt()
+    val b = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(b)
+    val bg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = if (selected) 0xFF1A73E8.toInt() else 0xFFFFFFFF.toInt() }
+    val r = android.graphics.RectF(1f, 1f, w - 1f, h - 1f)
+    c.drawRoundRect(r, 12 * density, 12 * density, bg)
+    if (!selected) {
+        val st = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE; strokeWidth = 2 * density; color = 0xFF9AA4B2.toInt()
+        }
+        c.drawRoundRect(r, 12 * density, 12 * density, st)
+    }
+    c.drawText(text, 13 * density, h / 2f - (tp.descent() + tp.ascent()) / 2, tp)
+    return b
+}

@@ -43,6 +43,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 
 private val BBg = Color(0xFF0D1214)
 private val BPanel = Color(0xFF151C1F)
@@ -87,9 +92,10 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
     androidx.compose.runtime.LaunchedEffect(s.mode == "idle") {
         if (s.mode == "idle" && hasLocation(ctx) && locationOn(ctx) && !TrackingService.running) TrackingService.start(ctx, standby = true)
     }
-    val next = if (pos == null || inC) null else (route?.corridors ?: emptyList())
+    // Sıradaki EDS: rota varsa rotadakiler, yoksa gidiş yönündeki en yakın koridor
+    val next = if (pos == null || inC) null else if (route != null) route.corridors
         .filter { Geo.dist(pos, it.from) > 50 }.minByOrNull { Geo.dist(pos, it.from) }
-        ?.let { CorridorStore.withOverride(it) }
+        ?.let { CorridorStore.withOverride(it) } else nextFree(s)
     var detail by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var settings by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     if (settings) QuickSettings(onClose = { settings = false }, onAll = { settings = false; onClose() })
@@ -97,7 +103,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
     val screenW = cfg.screenWidthDp.dp
     val screenH = cfg.screenHeightDp.dp
     val target = when {
-        !s.driving -> if (wide) (screenW * 0.38f).coerceIn(300.dp, 470.dp) else (screenW - 20.dp)
+        !s.driving -> 0.dp
         wide -> (screenW * 0.2f).coerceIn(180.dp, 280.dp)
         else -> (screenW * 0.25f).coerceIn(96.dp, 140.dp)
     }
@@ -119,7 +125,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
                 val topChip = when {
                     inC -> "● Koridordasın · ${Geo.fmtKm(s.remaining)} kaldı" + if (s.partial) " · kısmi" else ""
                     c != null -> "● Koridor girişi · yön doğrulanıyor"
-                    next != null && pos != null -> "Sıradaki koridor ${Geo.fmtKm(Geo.dist(pos, next.from))} · ${next.limit?.let { "limit $it" } ?: "limit ?"}"
+                    next != null && pos != null -> "Sıradaki EDS ${Geo.fmtKm(Geo.dist(pos, next.from))} · ${next.limit?.let { "limit $it" } ?: "limit ?"}"
                     else -> null
                 }
                 topChip?.let { MapChip(it, Modifier, if (inC || c != null) BWarn else BFg) }
@@ -149,8 +155,7 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
         val panelMod = Modifier.align(Alignment.TopEnd).fillMaxHeight().width(panelW).padding(top = 8.dp, bottom = 8.dp, end = 8.dp)
             .clip(RoundedCornerShape(22.dp)).background(BGlass).border(1.dp, BLine, RoundedCornerShape(22.dp))
         if (!s.driving) {
-            StandbyPanel(s, voice, onClose, panelMod.padding(12.dp))
-            GearButton(Modifier.align(Alignment.TopStart).padding(10.dp)) { settings = true }
+            HomeOverlay(s, wide, next, voice, onClose) { settings = true }
             return@Box
         }
         SidePanel(s, inC, c, lim, avg, col, next, wide, panelW, voice, detail, { detail = !detail }, { settings = true }, panelMod)
@@ -469,91 +474,202 @@ private fun MapChip(text: String, modifier: Modifier, color: Color) {
     )
 }
 
+// ---------------- Ana ekran (sürüş yokken): harita, arama çubuğu, kısayollar, rota önizleme ----------------
 
-/** Sürüş yokken sağ panel: nereye gidiyoruz, hızlı hedefler, başlat. */
+private fun bearingDeg(a: LatLng, b: LatLng): Double {
+    val la1 = Math.toRadians(a.lat); val la2 = Math.toRadians(b.lat)
+    val dl = Math.toRadians(b.lon - a.lon)
+    val y = Math.sin(dl) * Math.cos(la2)
+    val x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dl)
+    return (Math.toDegrees(Math.atan2(y, x)) + 360) % 360
+}
+
+/** Hedefsiz sürüşte gidiş yönündeki (±45°) en yakın EDS girişi (30 km içinde). */
+private fun nextFree(s: UiState): Corridor? {
+    val p = s.pos ?: return null
+    val back = s.track.asReversed().firstOrNull { Geo.dist(it, p) > 40 } ?: return null
+    val h = bearingDeg(back, p)
+    return CorridorStore.all().asSequence()
+        .filter { Geo.dist(p, it.from) in 50.0..30_000.0 }
+        .filter { var d = Math.abs(bearingDeg(p, it.from) - h); if (d > 180) d = 360 - d; d < 45 }
+        .minByOrNull { Geo.dist(p, it.from) }
+        ?.let { CorridorStore.withOverride(it) }
+}
+
 @Composable
-private fun StandbyPanel(s: UiState, voice: () -> Unit, onDetails: () -> Unit, modifier: Modifier) {
+private fun RoundIcon(text: String, label: String, onClick: () -> Unit) {
+    androidx.compose.material3.IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+        Text(text, color = BFg, fontSize = 22.sp, modifier = Modifier.semantics { contentDescription = label })
+    }
+}
+
+@Composable
+private fun PlaceChip(text: String, color: Color = BFg, onClick: () -> Unit) {
+    Text(text, color = color, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(BGlass).border(1.dp, BLine, RoundedCornerShape(99.dp))
+            .clickable { onClick() }.padding(horizontal = 16.dp, vertical = 11.dp))
+}
+
+@Composable
+private fun HomeOverlay(s: UiState, wide: Boolean, next: Corridor?, voice: () -> Unit, onApp: () -> Unit, onSettings: () -> Unit) {
     val ctx = LocalContext.current
     val rs = RouteSession
+    val cfg = androidx.compose.ui.platform.LocalConfiguration.current
+    var searching by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var charging by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (searching) SearchDialog { searching = false }
+    if (charging) ChargingDialog(s) { charging = false }
     val home = Places.loadSlot(ctx, "ev")
     val work = Places.loadSlot(ctx, "is")
     val saved = Places.savedList(ctx)
-    val pos = s.pos
-    val near = remember(pos?.lat?.times(100)?.toInt(), pos?.lon?.times(100)?.toInt(), CorridorStore.version.value) {
-        if (pos == null) 0 else CorridorStore.all().count { Geo.dist(pos, it.from) < 30_000 }
-    }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Nereye gidiyoruz?", color = BFg, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+    val colW = if (wide) (cfg.screenWidthDp.dp * 0.44f).coerceIn(340.dp, 540.dp) else cfg.screenWidthDp.dp
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.align(Alignment.TopStart).width(colW).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Arama çubuğu
+            Row(
+                Modifier.fillMaxWidth().height(58.dp).clip(RoundedCornerShape(29.dp)).background(BGlass).border(1.dp, BLine, RoundedCornerShape(29.dp)),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RoundIcon("⚙", "Ayarlar", onSettings)
+                Text("Nereye gidiyorsun?", color = BMuted, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    modifier = Modifier.weight(1f).fillMaxHeight().clickable { searching = true }.wrapContentHeight())
+                RoundIcon("🎤", "Konuş", voice)
+            }
+            // Kısayollar: Ev, İş, kayıtlı yerler, şarj
+            Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PlaceChip("🏠 Ev") { if (home != null) rs.go(ctx, home) else { Nav.big = false; Nav.tab = 1 } }
+                PlaceChip("🏢 İş") { if (work != null) rs.go(ctx, work) else { Nav.big = false; Nav.tab = 1 } }
+                PlaceChip("⚡ Şarj", BOk) { charging = true }
+                saved.forEach { p -> PlaceChip("📍 " + p.name) { rs.go(ctx, p) } }
+            }
             if (Firma.enabled) TripTypeChip()
-            Text(if (s.mode == "idle") "Konum kapalı" else s.gpsText.substringBefore(" ·").let { if (s.pos != null) "Konum hazır" else it },
-                color = BMuted, fontSize = 14.sp, maxLines = 1,
-                modifier = Modifier.clip(RoundedCornerShape(99.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(99.dp)).padding(horizontal = 12.dp, vertical = 6.dp))
         }
-        Row(Modifier.height(130.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Column(
-                Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(20.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(20.dp)),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
-            ) {
-                Text("ANLIK HIZ", color = BMuted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Text(s.speedKmh?.toString() ?: "—", color = BFg, fontSize = 58.sp, lineHeight = 60.sp, fontWeight = FontWeight.Bold)
-            }
-            Column(
-                Modifier.weight(1.6f).fillMaxHeight().clip(RoundedCornerShape(20.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(20.dp)).padding(14.dp),
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(if (s.mode == "bekle") "Hazır" else "Takip kapalı", color = if (s.mode == "bekle") BOk else BMuted, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    if (s.mode == "bekle") "Hedef seçince ya da araç hareket edince sürüş kendiliğinden başlar."
-                    else "“Sürüşü başlat”a dokun ya da bir hedef seç.",
-                    color = BFg, fontSize = 15.sp
-                )
-                if (near > 0) Text("Yakınında (30 km) $near kayıtlı koridor var.", color = BWarn, fontSize = 14.sp)
-            }
-        }
-        // Hızlı hedefler
-        val tiles = buildList {
-            add(Triple("Ev", home, "ev"))
-            add(Triple("İş", work, "is"))
-            saved.take(4).forEach { add(Triple(it.name, it, "yer")) }
-        }
-        Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            tiles.chunked(2).take(if (Firma.enabled) 2 else 3).forEach { row ->
-                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    row.forEach { (label, p, kind) ->
-                        Column(
-                            Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(18.dp))
-                                .background(if (p != null) BPanel else BBg).border(1.dp, if (kind == "yer") BBlue.copy(alpha = 0.5f) else BLine, RoundedCornerShape(18.dp))
-                                .clickable(enabled = !rs.busy) {
-                                    if (p != null) rs.go(ctx, p) else { Nav.big = false; Nav.tab = 1 }
-                                }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text((if (kind == "ev") "🏠 " else if (kind == "is") "🏢 " else "📍 ") + label, color = BFg, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(p?.let { if (kind == "yer") it.detail.ifBlank { "Kayıtlı yer" } else it.name } ?: "Kayıtlı değil · kaydetmek için dokun",
-                                color = BMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
+        // Alt kart: rota önizleme ya da hazır durumu
+        Column(
+            Modifier.align(Alignment.BottomStart).width(colW).padding(10.dp)
+                .clip(RoundedCornerShape(22.dp)).background(BGlass).border(1.dp, BLine, RoundedCornerShape(22.dp)).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val info = rs.info
+            if (rs.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = BBlue, trackColor = BLine)
+            if (rs.previewing && info != null && !rs.busy) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(info.target.name, color = BFg, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${etaText(info.durationS)} · ${Geo.fmtKm(info.totalM)} · " +
+                            (if (info.corridors.isEmpty()) "EDS yok" else "${info.corridors.size} EDS"),
+                            color = BMuted, fontSize = 15.sp, maxLines = 1)
                     }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                    RoundIcon("✕", "Vazgeç") { rs.clear() }
+                }
+                rs.enforcement?.text?.let { Text("🚓 $it", color = BOver, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                RouteChoices(compact = true)
+                Button(onClick = { rs.startNav(ctx) }, modifier = Modifier.fillMaxWidth().height(60.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = BOk, contentColor = Color(0xFF06140C))) {
+                    Text("▶  Başlat", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                (rs.retryText ?: rs.msg)?.let {
+                    Text(it, color = if (rs.msgBad) BOver else BWarn, fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(if (s.mode == "bekle") "Hazır" else "Konum kapalı", color = if (s.mode == "bekle") BOk else BMuted,
+                            fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(if (s.mode == "bekle") "Hareket edince sürüş kendiliğinden başlar" else "Konumu açınca hazır olur",
+                            color = BFg, fontSize = 14.sp, maxLines = 2)
+                        val pos = s.pos
+                        if (next != null && pos != null) Text("Sıradaki EDS ${Geo.fmtKm(Geo.dist(pos, next.from))}", color = BWarn, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(s.speedKmh?.toString() ?: "—", color = BFg, fontSize = 40.sp, fontWeight = FontWeight.Bold)
+                    Text(" km/s", color = BMuted, fontSize = 13.sp)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.OutlinedButton(onClick = onApp, modifier = Modifier.weight(1f).height(52.dp)) {
+                        Text("Yolculuklar · Ayarlar", color = BFg, fontSize = 15.sp, maxLines = 1)
+                    }
+                    Button(onClick = { if (hasLocation(ctx)) TrackingService.start(ctx) }, modifier = Modifier.weight(1f).height(52.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)) {
+                        Text("Sürüşü başlat", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
                 }
             }
         }
-        (rs.retryText ?: rs.msg)?.let {
-            Text(it, color = if (rs.msgBad) BOver else BWarn, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-        VehicleTypeSwitch(48, 16)
-        TripTypeSwitch(48, 16)
-        Row(Modifier.height(70.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = voice, modifier = Modifier.weight(1f).fillMaxHeight(),
-                colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)) { Text("🎤 Konuş", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-            Button(onClick = { Nav.big = false; Nav.tab = 1 }, modifier = Modifier.weight(1f).fillMaxHeight(),
-                colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)) { Text("🔎 Ara", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-            Button(
-                onClick = { if (hasLocation(ctx)) TrackingService.start(ctx) },
-                modifier = Modifier.weight(1.3f).fillMaxHeight(),
-                colors = ButtonDefaults.buttonColors(containerColor = BOk, contentColor = Color(0xFF06140C))
-            ) { Text("Sürüşü başlat", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+    }
+}
+
+/** Arama: yazınca Google/OSM sonuçları; boşken kayıtlı yerler. Seçince rota önizlenir. */
+@Composable
+private fun SearchDialog(onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val rs = RouteSession
+    val voice = rememberVoice()
+    val focus = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(BBg).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RoundIcon("←", "Geri", onClose)
+                androidx.compose.material3.OutlinedTextField(
+                    value = rs.query, onValueChange = { rs.query = it }, singleLine = true,
+                    placeholder = { Text("Adres, firma ya da yer") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { rs.search(ctx) }),
+                    modifier = Modifier.weight(1f).focusRequester(focus)
+                )
+                RoundIcon("🎤", "Konuş") { onClose(); voice() }
+            }
+            Button(onClick = { rs.search(ctx) }, enabled = rs.query.isNotBlank() && !rs.busy, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                Text(if (rs.busy) "Aranıyor…" else "Ara", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+            rs.msg?.let { Text(it, color = if (rs.msgBad) BOver else BMuted, fontSize = 14.sp) }
+            val list = if (rs.results.isNotEmpty()) rs.results else Places.savedList(ctx)
+            if (rs.results.isEmpty() && list.isNotEmpty()) Text("Kayıtlı yerler", color = BMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(list.size) { i ->
+                    val p = list[i]
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(14.dp))
+                            .clickable { onClose(); rs.go(ctx, p) }.padding(14.dp)
+                    ) {
+                        Text("📍 " + p.name, color = BFg, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (p.detail.isNotBlank()) Text(p.detail, color = BMuted, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
         }
     }
+}
+
+/** Şarj istasyonları: rota varsa yol boyunca, yoksa yakında. Dokununca oraya rota. */
+@Composable
+private fun ChargingDialog(s: UiState, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    var list by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<Places.Place>?>(null) }
+    var err by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    val here = s.pos ?: Places.currentLocation(ctx)
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (here == null) { err = "Konum yok. Konum açılınca tekrar dene."; return@LaunchedEffect }
+        list = try { Places.charging(here, RouteSession.info?.line) } catch (e: Exception) { err = "Arama yapılamadı: ${e.message}"; emptyList() }
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(if (RouteSession.info != null) "⚡ Rota üzerindeki şarj istasyonları" else "⚡ Yakındaki şarj istasyonları") },
+        text = {
+            Column(Modifier.heightIn(max = 460.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                err?.let { Text(it) }
+                val l = list
+                if (l == null && err == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (l != null && l.isEmpty() && err == null) Text("Yakında şarj istasyonu bulunamadı.")
+                l?.forEach { p ->
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onClose(); RouteSession.go(ctx, p) }.padding(vertical = 8.dp)) {
+                        Text(p.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(listOfNotNull(here?.let { Geo.fmtKm(Geo.dist(it, p.ll)) }, p.detail.ifBlank { null }).joinToString(" · "),
+                            fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onClose) { Text("Kapat") } }
+    )
 }

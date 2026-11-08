@@ -77,9 +77,15 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
         asked = true
         val half = TripStore.get(TripStore.activeId())
         when {
-            TrackingService.running && Engine.state.value.driving -> ask = "suruyor"
+            // Sürüş sürüyorsa sormadan devam
             Engine.tracking -> {}
-            half != null -> ask = "yarim"
+            // Yarım kalan yolculuk: 30 dk içinde kaldıysa sormadan devam, daha eskiyse kaydedilip kapanır
+            half != null && System.currentTimeMillis() - half.end < 30 * 60_000L -> startWithPermission(half.id)
+            half != null -> {
+                TripStore.setActive(null)
+                if (!half.sample) VehicleStore.addKm(VehicleStore.active.id, half.distM / 1000)
+                if (!hasLocation(ctx)) startWithPermission(null) else if (locationOn(ctx)) begin(null) else ask = "konum"
+            }
             // Konum izni yoksa izni iste; izin varsa ve konum açıksa sormadan başla; kapalıysa sor
             !hasLocation(ctx) -> startWithPermission(null)
             locationOn(ctx) -> begin(null)
@@ -178,20 +184,4 @@ fun StartupPrompts(firstOpen: Boolean, s: UiState) {
         )
     }
 
-    // Hedefe varış
-    val arrived = s.arrived
-    if (ask == null && arrived != null && s.driving) {
-        AlertDialog(
-            onDismissRequest = { Engine.dismissArrival() },
-            title = { Text("Hedefe vardın") },
-            text = { Text("$arrived. Sürüşü bitirip yolculuğu kaydedelim mi?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    Engine.dismissArrival()
-                    TrackingService.end(ctx)
-                }) { Text("Sürüşü bitir", fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = { TextButton(onClick = { Engine.dismissArrival() }) { Text("Devam et") } }
-        )
-    }
 }

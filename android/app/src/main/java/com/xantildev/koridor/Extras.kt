@@ -325,6 +325,10 @@ fun SettingsCard() {
             Segments(listOf("google" to "Google", "osm" to "OpenStreetMap"), AppSettings.mapProvider, 46, 15) { AppSettings.chooseMap(it) }
             Text("Google hizmetleri olmayan cihazlarda (araç ekranı) Google haritası web üzerinden açılır. Açılmazsa OpenStreetMap'e geç.", color = XMuted, fontSize = 12.sp)
         }
+        Text("Ücretli yollar (otoyol, köprü)", color = XFg, fontWeight = FontWeight.SemiBold)
+        Segments(listOf("kullan" to "Kullan", "kacin" to "Kullanma"), if (AppSettings.avoidTolls) "kacin" else "kullan", 46, 15) {
+            AppSettings.chooseAvoidTolls(it == "kacin")
+        }
         Text("Gece modu (ekranı karartır)", color = XFg, fontWeight = FontWeight.SemiBold)
         Segments(listOf("oto" to "Otomatik", "acik" to "Açık", "kapali" to "Kapalı"), AppSettings.night, 46, 15) { AppSettings.chooseNight(it) }
         Text("Otomatik: 20:00–07:00 arası.", color = XMuted, fontSize = 12.sp)
@@ -537,6 +541,10 @@ fun QuickSettings(onClose: () -> Unit, onAll: () -> Unit) {
             if (GoogleApi.enabled) {
                 Text("Harita", color = XFg, fontWeight = FontWeight.SemiBold)
                 Segments(listOf("google" to "Google", "osm" to "OpenStreetMap"), AppSettings.mapProvider, 46, 15) { AppSettings.chooseMap(it) }
+            }
+            Text("Ücretli yollar (otoyol, köprü)", color = XFg, fontWeight = FontWeight.SemiBold)
+            Segments(listOf("kullan" to "Kullan", "kacin" to "Kullanma"), if (AppSettings.avoidTolls) "kacin" else "kullan", 44, 14) {
+                AppSettings.chooseAvoidTolls(it == "kacin")
             }
             Text("Araç", color = XFg, fontWeight = FontWeight.SemiBold)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
