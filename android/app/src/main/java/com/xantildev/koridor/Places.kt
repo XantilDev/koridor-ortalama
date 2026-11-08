@@ -194,6 +194,18 @@ object Places {
     }
 
     /** Kullanıcının isim verip kaydettiği yerler (ör. "Çevrükler Makine"). */
+    private var app: Context? = null
+    fun init(ctx: Context) { app = ctx.applicationContext }
+
+    /** Noktaya 200 m içindeki kayıtlı yerin adı (önce isimli yerler, sonra Ev / İş). */
+    fun placeAt(p: LatLng): String? {
+        val c = app ?: return null
+        savedList(c).filter { Geo.dist(it.ll, p) < 200 }.minByOrNull { Geo.dist(it.ll, p) }?.let { return it.name }
+        loadSlot(c, "ev")?.takeIf { Geo.dist(it.ll, p) < 200 }?.let { return "Ev" }
+        loadSlot(c, "is")?.takeIf { Geo.dist(it.ll, p) < 200 }?.let { return "İş" }
+        return null
+    }
+
     fun savedList(ctx: Context): List<Place> = try {
         val a = org.json.JSONArray(ctx.getSharedPreferences("rota", Context.MODE_PRIVATE).getString("yerler", "[]"))
         (0 until a.length()).map { i ->

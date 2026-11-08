@@ -23,6 +23,7 @@ class App : Application() {
         }
         VehicleStore.init(this)
         TripStore.init(this)
+        Places.init(this)
         CorridorStore.init(this)
         CorridorCrawler.init(this)
         AppSettings.init(this)

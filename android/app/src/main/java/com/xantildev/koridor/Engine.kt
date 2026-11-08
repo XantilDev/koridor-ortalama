@@ -244,7 +244,8 @@ object Engine {
                 passes = ArrayList(passes),
                 track = ArrayList(fullTrack),
                 purpose = if (Firma.enabled) (if (Firma.isWork) "is" else "sahsi") else "",
-                driver = if (Firma.enabled) Firma.driver ?: "" else ""
+                driver = if (Firma.enabled) Firma.driver ?: "" else "",
+                place = prev?.ll?.let { Places.placeAt(it) } ?: ""
             )
     }
 

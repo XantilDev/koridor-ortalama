@@ -84,4 +84,7 @@ dependencies {
     implementation("androidx.car.app:app-projected:1.4.0")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("com.google.android.gms:play-services-maps:19.0.0")
+    // İnternetsiz Türkçe ses tanıma (Google hizmeti olmayan araç ekranları için; model ilk kullanımda indirilir)
+    implementation("com.alphacephei:vosk-android:0.3.47@aar")
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
 }

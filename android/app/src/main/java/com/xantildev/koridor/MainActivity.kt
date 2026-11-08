@@ -165,6 +165,7 @@ private fun Root(firstOpen: Boolean) {
     val s by Engine.state.collectAsStateWithLifecycle()
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
     CrashReport()
+    OfflineVoiceHost()
     StartupPrompts(firstOpen, s)
     TripSummaryDialog()
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -1124,6 +1125,7 @@ private fun TripsTab(s: UiState) {
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        item { MonthCard(all) }
         item { VehicleCard(s) { vehDlg = true } }
         item { WeeklySummary(trips) }
         if (plates.size > 1 || Firma.enabled) item {
@@ -1151,7 +1153,7 @@ private fun TripsTab(s: UiState) {
                 Text("“GPS ile başlat” ile başlayıp “Durdur” ile bitirdiğin her sürüş burada mesafe, süre, ortalamalar ve rotasıyla saklanır.", color = Muted, fontSize = 13.sp)
             }
         }
-        items(trips) { tr -> TripRow(tr) { open = tr } }
+        items(trips) { tr -> TripCardView(tr) { open = tr } }
     }
     if (vehDlg) VehicleDialog { vehDlg = false }
 }
@@ -1425,11 +1427,27 @@ private fun TripMap(t: TripRecord) {
             controller.setCenter(org.osmdroid.util.GeoPoint(39.0, 35.0))
             val pts = t.track.map { org.osmdroid.util.GeoPoint(it.lat, it.lon) }
             if (pts.size >= 2) {
+                val dn = resources.displayMetrics.density
                 val line = org.osmdroid.views.overlay.Polyline(this)
                 line.setPoints(pts)
-                line.outlinePaint.color = 0xFFF2B632.toInt()
-                line.outlinePaint.strokeWidth = 10f
+                line.outlinePaint.color = 0xFF2563EB.toInt()
+                line.outlinePaint.strokeWidth = 6 * dn
+                line.outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
                 overlays.add(line)
+                // EDS bölümleri sonuca göre renkli: yeşil limit altı, turuncu %10'a kadar üstü, kırmızı daha fazlası
+                edsRanges(t).forEach { (r, p) ->
+                    val seg = org.osmdroid.views.overlay.Polyline(this)
+                    seg.setPoints(pts.subList(r.first, r.last + 1))
+                    seg.outlinePaint.color = when {
+                        p.limit == null -> 0xFFF97316.toInt()
+                        p.avg > p.limit * 1.1 -> 0xFFDC2626.toInt()
+                        p.avg > p.limit -> 0xFFF97316.toInt()
+                        else -> 0xFF16A34A.toInt()
+                    }
+                    seg.outlinePaint.strokeWidth = 9 * dn
+                    seg.title = "${p.name} · ort ${p.avg.roundToInt()} / limit ${p.limit ?: "?"}"
+                    overlays.add(seg)
+                }
                 fun dotMarker(p: org.osmdroid.util.GeoPoint, color: Int, title: String) {
                     val m = org.osmdroid.views.overlay.Marker(this)
                     m.position = p
@@ -1444,7 +1462,7 @@ private fun TripMap(t: TripRecord) {
                     overlays.add(m)
                 }
                 dotMarker(pts.first(), 0xFF2FBF71.toInt(), "Başlangıç " + fmtDate(t.start, "HH:mm"))
-                dotMarker(pts.last(), 0xFF4DA3FF.toInt(), "Bitiş " + fmtDate(t.end, "HH:mm"))
+                dotMarker(pts.last(), 0xFF0F172A.toInt(), "Bitiş " + fmtDate(t.end, "HH:mm"))
                 val box = org.osmdroid.util.BoundingBox.fromGeoPoints(pts)
                 addOnFirstLayoutListener { _, _, _, _, _ ->
                     try {
@@ -1455,7 +1473,36 @@ private fun TripMap(t: TripRecord) {
             }
         }
     }
-    AndroidView(factory = { map }, modifier = Modifier.fillMaxSize())
+    val replay = remember(t.id) { org.osmdroid.views.overlay.Marker(map) }
+    var playing by remember(t.id) { mutableStateOf(false) }
+    // Tekrar oynatma: araç izi baştan sona ~15 sn'de gezer
+    LaunchedEffect(playing) {
+        if (!playing || t.track.size < 2) return@LaunchedEffect
+        replay.icon = android.graphics.drawable.BitmapDrawable(map.resources, arrowBitmap(map.resources.displayMetrics.density, 30))
+        replay.setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_CENTER)
+        replay.isFlat = true
+        if (!map.overlays.contains(replay)) map.overlays.add(replay)
+        val n = t.track.size
+        val frames = 300
+        for (f in 0..frames) {
+            val i = (f.toLong() * (n - 1) / frames).toInt()
+            val a = t.track[i]
+            val b = t.track[minOf(n - 1, i + 3)]
+            replay.position = org.osmdroid.util.GeoPoint(a.lat, a.lon)
+            if (a != b) replay.rotation = -Math.toDegrees(Math.atan2((b.lon - a.lon) * Math.cos(Math.toRadians(a.lat)), b.lat - a.lat)).toFloat()
+            map.invalidate()
+            kotlinx.coroutines.delay(50)
+        }
+        playing = false
+    }
+    Box(Modifier.fillMaxSize()) {
+        AndroidView(factory = { map }, modifier = Modifier.fillMaxSize())
+        if (t.track.size >= 2) Button(
+            onClick = { playing = !playing },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB), contentColor = Color.White)
+        ) { Text(if (playing) "■ Durdur" else "▶ Oynat", fontWeight = FontWeight.Bold) }
+    }
     DisposableEffect(t.id) {
         map.onResume()
         onDispose { map.onPause() }
