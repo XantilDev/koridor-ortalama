@@ -16,6 +16,9 @@ import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import kotlinx.coroutines.launch
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -30,19 +33,38 @@ object Updater {
     class Info(val code: Int, val notes: String)
     var available by mutableStateOf<Info?>(null)
 
+    /** El ile kontrol sonucu (ayarlarda gösterilir). */
+    var manualText by mutableStateOf<String?>(null)
+    var checking by mutableStateOf(false)
+
+    /** Ayarlardaki "Güncellemeleri kontrol et": günlük sınır olmadan bakar, sonucu yazar. */
+    suspend fun checkNow(ctx: Context) {
+        checking = true
+        manualText = "Kontrol ediliyor…"
+        val info = fetch()
+        checking = false
+        manualText = when {
+            info == null -> "Kontrol edilemedi (internet bağlantısı?)."
+            info.code > BuildConfig.VERSION_CODE -> { available = info; "Yeni sürüm var: #${info.code}" }
+            else -> "Güncelsin, en son sürüm yüklü."
+        }
+    }
+
+    private suspend fun fetch(): Info? = withContext(Dispatchers.IO) {
+        runCatching {
+            val c = URL(INFO).openConnection() as HttpURLConnection
+            c.connectTimeout = 10000; c.readTimeout = 10000
+            c.instanceFollowRedirects = true
+            val o = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+            c.disconnect()
+            Info(o.getInt("versionCode"), o.optString("notes"))
+        }.getOrNull()
+    }
+
     suspend fun check(ctx: Context) {
         if (!BuildConfig.FIRMA) return
         val prefs = ctx.getSharedPreferences("guncelleme", Context.MODE_PRIVATE)
-        val info = withContext(Dispatchers.IO) {
-            runCatching {
-                val c = URL(INFO).openConnection() as HttpURLConnection
-                c.connectTimeout = 10000; c.readTimeout = 10000
-                c.instanceFollowRedirects = true
-                val o = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
-                c.disconnect()
-                Info(o.getInt("versionCode"), o.optString("notes"))
-            }.getOrNull()
-        } ?: return
+        val info = fetch() ?: return
         if (info.code <= BuildConfig.VERSION_CODE) return
         val last = prefs.getLong("soruldu_${info.code}", 0)
         if (System.currentTimeMillis() - last < 24 * 3600_000L) return
@@ -74,4 +96,21 @@ fun UpdateDialog() {
         },
         dismissButton = { TextButton(onClick = { Updater.available = null }) { Text("Sonra") } }
     )
+}
+
+/** Ayarlardaki sürüm satırı ve "Güncellemeleri kontrol et" düğmesi. */
+@Composable
+fun VersionRow() {
+    val ctx = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+        Text("Sürüm #${BuildConfig.VERSION_CODE} (${BuildConfig.VERSION_NAME})" + if (BuildConfig.FIRMA) " · firma" else "",
+            fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFE9EEEC))
+        if (BuildConfig.FIRMA) {
+            androidx.compose.material3.OutlinedButton(onClick = { scope.launch { Updater.checkNow(ctx) } }, enabled = !Updater.checking) {
+                Text("Güncellemeleri kontrol et", color = androidx.compose.ui.graphics.Color(0xFFE9EEEC))
+            }
+            Updater.manualText?.let { Text(it, fontSize = 13.sp, color = androidx.compose.ui.graphics.Color(0xFF8C9A97)) }
+        } else Text("Güncellemeler Play Store'dan gelir.", fontSize = 13.sp, color = androidx.compose.ui.graphics.Color(0xFF8C9A97))
+    }
 }

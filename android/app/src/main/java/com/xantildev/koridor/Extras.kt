@@ -332,6 +332,7 @@ fun SettingsCard() {
         Text("Gece modu (ekranı karartır)", color = XFg, fontWeight = FontWeight.SemiBold)
         Segments(listOf("oto" to "Otomatik", "acik" to "Açık", "kapali" to "Kapalı"), AppSettings.night, 46, 15) { AppSettings.chooseNight(it) }
         Text("Otomatik: 20:00–07:00 arası.", color = XMuted, fontSize = 12.sp)
+        VersionRow()
     }
 }
 
@@ -570,6 +571,7 @@ fun QuickSettings(onClose: () -> Unit, onAll: () -> Unit) {
                 AppSettings.chooseOverlay(it == "acik")
                 if (it == "acik" && !Overlay.allowed(ctx)) Power.requestOverlay(ctx)
             }
+            VersionRow()
             OutlinedButton(onClick = onAll, modifier = Modifier.fillMaxWidth()) { Text("Tüm ayarlar · garaj · firma · yolculuklar", color = XFg) }
         }
     }
