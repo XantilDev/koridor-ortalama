@@ -543,6 +543,7 @@ private fun HomeOverlay(s: UiState, wide: Boolean, next: Corridor?, voice: () ->
                 saved.forEach { p -> PlaceChip("📍 " + p.name) { rs.go(ctx, p) } }
             }
             if (Firma.enabled) TripTypeChip()
+            MuayeneChip()
         }
         // Alt kart: rota önizleme ya da hazır durumu
         Column(
@@ -671,5 +672,22 @@ private fun ChargingDialog(s: UiState, onClose: () -> Unit) {
             }
         },
         confirmButton = { androidx.compose.material3.TextButton(onClick = onClose) { Text("Kapat") } }
+    )
+}
+
+/** Şirket aracının muayenesi 30 günden az kaldıysa uyarı (panelden girilen tarih). */
+@Composable
+fun MuayeneChip() {
+    val ctx = LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(VehicleStore.activeId, Firma.accounts.size) { Firma.checkMuayene() }
+    val g = Firma.muayeneGun ?: return
+    if (g > 30) return
+    val red = g <= 7
+    Text(
+        "🗓 " + when { g < 0 -> "Muayene ${-g} gün geçti!"; g == 0 -> "Muayene bugün!"; else -> "Muayeneye $g gün kaldı" } +
+            " · ${VehicleStore.active.plate}",
+        color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (red) Color(0xFFDC2626) else Color(0xFFC2410C))
+            .padding(horizontal = 14.dp, vertical = 9.dp)
     )
 }

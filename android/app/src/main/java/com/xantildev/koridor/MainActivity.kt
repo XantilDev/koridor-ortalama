@@ -273,6 +273,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         RouteSession.retryText?.let { NoteBox(it, Warn) }
         if (route != null) RouteSession.enforcement?.text?.let { NoteBox("🚓 $it (EGM yeri açıklamıyor; anlık sayı)", Accent) }
         if (Firma.enabled) TripTypeChip(large = false)
+        MuayeneChip()
         if (s.trip.dist < 5000) RouteChoices()
         ApproachBanner(s, big = false)
         Hud(s) { limitFor = it }

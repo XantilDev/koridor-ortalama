@@ -126,6 +126,26 @@ object Firma {
         prefs.edit().putString("hesaplar", a.toString()).putString("surucu", driver).apply()
     }
 
+    /** Kullanılan şirket aracının muayenesine kalan gün (panelden girilir); bilinmiyorsa null. */
+    var muayeneGun by mutableStateOf<Int?>(null)
+        private set
+    private var muayeneFor: String? = null
+
+    fun checkMuayene() {
+        val v = VehicleStore.active
+        val t = token
+        if (!enabled || t == null || !v.company || v.plate.isBlank()) { muayeneGun = null; muayeneFor = null; return }
+        if (muayeneFor == v.plate) return
+        muayeneFor = v.plate
+        scope.launch(Dispatchers.IO) {
+            val g = runCatching {
+                val o = JSONObject(rpc("arac_muayene", JSONObject().put("p_token", t).put("p_plaka", v.plate)))
+                if (o.isNull("kalan_gun")) null else o.getInt("kalan_gun")
+            }.getOrNull()
+            withContext(Dispatchers.Main) { muayeneGun = g }
+        }
+    }
+
     private fun rpc(fn: String, body: JSONObject): String {
         val c = URL("$SB_URL/rest/v1/rpc/$fn").openConnection() as HttpURLConnection
         c.connectTimeout = 15000
@@ -273,8 +293,14 @@ object Firma {
             })
             .put("p_ortalama", r.avg?.roundToInt() ?: JSONObject.NULL)
             .put("p_hareket_ort", r.moveAvg?.roundToInt() ?: JSONObject.NULL)
+        if (r.place.isNotBlank()) body.put("p_yer", r.place)
         scope.launch(Dispatchers.IO) {
-            val err = runCatching { rpc("yolculuk_ekle", body) }.exceptionOrNull()
+            var err = runCatching { rpc("yolculuk_ekle", body) }.exceptionOrNull()
+            // Sunucu henüz "yer" alanını tanımıyorsa (panel güncellemesi yapılmadıysa) onsuz tekrar dene
+            if (err != null && body.has("p_yer")) {
+                body.remove("p_yer")
+                err = runCatching { rpc("yolculuk_ekle", body) }.exceptionOrNull()
+            }
             if (err != null) withContext(Dispatchers.Main) { status = "Yolculuk rapora işlenemedi: ${err.message}" }
         }
     }
