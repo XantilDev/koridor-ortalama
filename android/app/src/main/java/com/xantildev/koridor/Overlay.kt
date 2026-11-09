@@ -195,7 +195,8 @@ object Overlay {
                 big.text = sp?.toString() ?: "—"
                 big.setTextColor(if (lim != null && (sp ?: 0) > lim) over else Color.WHITE)
                 unit.text = "km/s"
-                small.text = if (s.driving) "anlık hız · yolculuk ort. ${s.tripAvg?.roundToInt() ?: "—"} · ${Geo.fmtKm(s.trip.dist)}" else "anlık hız · hazır"
+                small.text = if (s.gpsText.startsWith("Konum alınamıyor")) "⚠ " + s.gpsText
+                    else if (s.driving) "anlık hız · yolculuk ort. ${s.tripAvg?.roundToInt() ?: "—"} · ${Geo.fmtKm(s.trip.dist)}" else "anlık hız · hazır"
                 r.background = calm(40 * dp, compact)
             }
         }

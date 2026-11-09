@@ -67,8 +67,28 @@ class TrackingService : Service() {
     private var scope: CoroutineScope? = null
     private var lastNotif = 0L
 
+    @Volatile private var lastFixWall = 0L
+    private var lastRearm = 0L
+    private var wake: android.os.PowerManager.WakeLock? = null
+
+    /** Konum gelmez olursa (bazı araç ekranları arka planda GPS dinleyicisini durdurabiliyor) dinleyiciyi yeniden kur. */
+    private fun rearm() {
+        val m = lm ?: return
+        lastRearm = System.currentTimeMillis()
+        try {
+            m.removeUpdates(listener)
+            m.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, listener, Looper.getMainLooper())
+            if (m.isProviderEnabled(LocationManager.NETWORK_PROVIDER))
+                m.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 0f, listener, Looper.getMainLooper())
+        } catch (_: Exception) {
+        }
+    }
+
     private val listener = object : LocationListener {
         override fun onLocationChanged(loc: Location) {
+            // GPS varken ağ konumu yalnız GPS sustuğunda kullanılır
+            if (loc.provider != LocationManager.GPS_PROVIDER && System.currentTimeMillis() - lastFixWall < 5000) return
+            lastFixWall = System.currentTimeMillis()
             Engine.onFix(
                 Fix(
                     loc.latitude, loc.longitude, loc.time,
@@ -118,8 +138,25 @@ class TrackingService : Service() {
                 shutdown()
                 return START_NOT_STICKY
             }
+            lastFixWall = System.currentTimeMillis()
+            // Ekran kapalı / arka planda işlemci uyumasın (sürüş boyunca)
+            runCatching {
+                wake = (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager)
+                    .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "koridor:takip").apply { acquire(12 * 3600_000L) }
+            }
             val sc = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             scope = sc
+            // Bekçi: 20 sn konum gelmezse dinleyiciyi yeniden kur ve ekranda bildir
+            sc.launch {
+                while (true) {
+                    kotlinx.coroutines.delay(10_000)
+                    val quiet = System.currentTimeMillis() - lastFixWall
+                    if (quiet > 20_000) {
+                        if (System.currentTimeMillis() - lastRearm > 30_000) rearm()
+                        Engine.gpsStatus("Konum alınamıyor (${quiet / 1000} sn) — yeniden deneniyor")
+                    }
+                }
+            }
             sc.launch {
                 Engine.state.collect { s ->
                     Firma.onState(s)
@@ -180,6 +217,8 @@ class TrackingService : Service() {
     }
 
     private fun shutdown() {
+        runCatching { wake?.takeIf { it.isHeld }?.release() }
+        wake = null
         lm?.removeUpdates(listener)
         lm = null
         scope?.cancel()
