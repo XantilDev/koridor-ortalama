@@ -115,7 +115,8 @@ private fun StatBox(value: String, label: String, fg: Color, bg: Color, modifier
 /** Bir yolculuk kartı: üstte rota çizimi ve rozetler, altta başlık, km/süre/ortalama, EDS ve ihlal. */
 @Composable
 fun TripCardView(t: TripRecord, onClick: () -> Unit) {
-    val over = t.passes.count { p -> p.limit != null && p.avg > p.limit }
+    val over = t.passes.count { p -> p.isViolation }
+    val tol = t.passes.count { p -> p.inTolerance }
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White).clickable(onClick = onClick)) {
         Box(Modifier.fillMaxWidth().height(110.dp)) {
             RouteThumb(t, Modifier.fillMaxSize())
@@ -143,6 +144,7 @@ fun TripCardView(t: TripRecord, onClick: () -> Unit) {
                 Pill(if (t.passes.isEmpty()) "EDS yok" else "${t.passes.size} EDS geçti", COrange, COrangeBg)
                 if (over > 0) Pill("$over ihlal", Color.White, CRed, bold = true)
                 else if (t.passes.isNotEmpty()) Pill("İhlal yok", Color(0xFF166534), Color(0xFFDCFCE7))
+                if (tol > 0) Pill("$tol tolerans içinde", Color(0xFF713F12), Color(0xFFFEF08A))
             }
             if (t.note.isNotBlank()) Text("“${t.note}”", color = CMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
@@ -166,7 +168,7 @@ fun MonthCard(all: List<TripRecord>) {
     val month = all.filter { !it.sample && it.start >= cal.timeInMillis }
     val km = month.sumOf { it.distM } / 1000
     val work = month.count { it.purpose == "is" }
-    val over = month.sumOf { t -> t.passes.count { p -> p.limit != null && p.avg > p.limit } }
+    val over = month.sumOf { t -> t.passes.count { p -> p.isViolation } }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(fmt(System.currentTimeMillis(), "MMMM yyyy") + " · özetim", color = Color(0xFFE9EEEC), fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

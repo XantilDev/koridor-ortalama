@@ -289,7 +289,7 @@ object Firma {
             .put("p_arac", r.vehicleType).put("p_plaka", r.plate.ifBlank { r.vehicleName })
             .put("p_hedef", r.target ?: JSONObject.NULL)
             .put("p_koridor", r.passes.size)
-            .put("p_asim", r.passes.count { p -> p.limit != null && p.avg > p.limit })
+            .put("p_asim", r.passes.count { p -> p.isViolation })
             .put("p_iz", simplify(r.track).takeIf { it.size >= 2 }?.let { GoogleApi.encode(it) } ?: JSONObject.NULL)
             .put("p_koridorlar", JSONArray().apply {
                 r.passes.forEach { p ->

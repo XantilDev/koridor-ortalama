@@ -1217,7 +1217,7 @@ private fun GarageStats(v: Vehicle) {
     val dist = list.sumOf { it.distM }
     val time = list.sumOf { it.timeS }
     val avg = if (time > 10) dist / time * 3.6 else null
-    val over = list.sumOf { t -> t.passes.count { p -> p.limit != null && p.avg > p.limit } }
+    val over = list.sumOf { t -> t.passes.count { p -> p.isViolation } }
     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
         listOf(
             list.size.toString() to "Sürüş",

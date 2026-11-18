@@ -411,7 +411,7 @@ fun WeeklySummary(trips: List<TripRecord>) {
     val since = cal.timeInMillis.let { if (it > System.currentTimeMillis()) it - 7L * 86400_000 else it }
     val w = trips.filter { !it.sample && it.start >= since }
     val passes = w.flatMap { it.passes }
-    val over = passes.count { it.limit != null && it.avg > it.limit }
+    val over = passes.count { it.isViolation }
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(XPanel).border(1.dp, XLine, RoundedCornerShape(14.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)

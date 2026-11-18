@@ -18,6 +18,11 @@ data class CorridorPass(
     val lengthM: Double
 )
 
+/** İhlal: ortalama limiti %10'dan fazla aştı (kırmızı). */
+val CorridorPass.isViolation: Boolean get() = limit != null && avg > limit * 1.1
+/** Limitin üstünde ama %10 tolerans içinde (sarı); ihlal sayılmaz. */
+val CorridorPass.inTolerance: Boolean get() = limit != null && avg > limit && avg <= limit * 1.1
+
 data class TripRecord(
     val id: String,
     val start: Long,
