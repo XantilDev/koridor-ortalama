@@ -345,6 +345,14 @@ private fun DetailCard(
         }
         if (Firma.enabled) TripTypeChip()
         RadarSegList()
+        // Teşhis: rota kaynağı ve trafik verisi (trafik renkleri neden yok anlamak için)
+        route?.let { inf ->
+            val tr = Traffic.of(inf.line)
+            Text("Rota: ${RouteSession.routeSource ?: "—"} · trafik verisi: " +
+                (if (tr.isEmpty()) "yavaş/sıkışık bölüm yok" else "${tr.count { it.level == 1 }} yavaş, ${tr.count { it.level >= 2 }} sıkışık bölüm") +
+                (GoogleApi.trafficError?.let { " · trafikli istek hatası: $it" } ?: ""),
+                color = BMuted, fontSize = 12.sp)
+        }
         val enf = RouteSession.enforcement
         val ctx = LocalContext.current
         when {

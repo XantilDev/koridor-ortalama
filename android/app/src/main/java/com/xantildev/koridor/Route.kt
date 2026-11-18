@@ -326,6 +326,8 @@ object RouteSession {
         reroute(inf, p)
     }
 
+    /** Rotanın nereden geldiği (Detay'da gösterilir; trafik verisi neden yok anlamak için). */
+    var routeSource by mutableStateOf<String?>(null)
     private var radarAt = 0L
     private var trafficAt = 0L
 
@@ -429,8 +431,10 @@ object RouteSession {
             msg = "Rota hesaplanıyor: ${p.name}…"
             // Yol çizgileri: en fazla 3 seçenek (Google ya da OSRM)
             val roads = try {
-                if (GoogleApi.enabled) GoogleApi.routes(here, p.ll, true) else osrmAll(here, p.ll, true)
-            } catch (_: Exception) {
+                if (GoogleApi.enabled) GoogleApi.routes(here, p.ll, true).also { routeSource = "Google (trafikli)" }
+                else osrmAll(here, p.ll, true).also { routeSource = "OpenStreetMap" }
+            } catch (e: Exception) {
+                routeSource = "OpenStreetMap · Google hata verdi: ${e.message?.take(160)}"
                 try { osrmAll(here, p.ll, true) } catch (_: Exception) { emptyList() }
             }
             val road = roads.firstOrNull()

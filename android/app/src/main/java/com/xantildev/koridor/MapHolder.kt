@@ -124,12 +124,12 @@ class MapHolder(ctx: Context) : LiveMapView {
         you.icon = dot(0xFFF2B632.toInt(), Color.WHITE, 44)
         you.setInfoWindow(null)
         val dn = ctx.resources.displayMetrics.density
-        routeEdge.outlinePaint.color = 0xFF0B57D0.toInt()
-        routeEdge.outlinePaint.strokeWidth = 12 * dn
+        routeEdge.outlinePaint.color = 0x990B57D0.toInt()
+        routeEdge.outlinePaint.strokeWidth = 10 * dn
         routeEdge.outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
         routeEdge.outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
-        routeLine.outlinePaint.color = 0xFF4A8CFF.toInt()
-        routeLine.outlinePaint.strokeWidth = 8 * dn
+        routeLine.outlinePaint.color = 0xB34A8CFF.toInt()
+        routeLine.outlinePaint.strokeWidth = 6 * dn
         routeLine.outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
         routeLine.outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
         map.overlays.add(extraUnder)

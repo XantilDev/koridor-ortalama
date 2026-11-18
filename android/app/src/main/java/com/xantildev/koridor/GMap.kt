@@ -150,10 +150,10 @@ class GMapHolder(ctx: Context) : LiveMapView {
             if (ri != null && ri.line.size >= 2) {
                 // Google Haritalar gibi: koyu kenarlı mavi rota; EDS koridorları rotanın etrafında kırmızı kenar
                 val pts = ri.line.map { g(it) }
-                routeEdge = m.addPolyline(PolylineOptions().addAll(pts).color(0xFF0B57D0.toInt()).width(12 * density).zIndex(1f)
+                routeEdge = m.addPolyline(PolylineOptions().addAll(pts).color(0x990B57D0.toInt()).width(10 * density).zIndex(1f)
                     .startCap(com.google.android.gms.maps.model.RoundCap()).endCap(com.google.android.gms.maps.model.RoundCap())
                     .jointType(com.google.android.gms.maps.model.JointType.ROUND))
-                routeLine = m.addPolyline(PolylineOptions().addAll(pts).color(0xFF4A8CFF.toInt()).width(8 * density).zIndex(1.2f)
+                routeLine = m.addPolyline(PolylineOptions().addAll(pts).color(0xB34A8CFF.toInt()).width(6 * density).zIndex(1.2f)
                     .startCap(com.google.android.gms.maps.model.RoundCap()).endCap(com.google.android.gms.maps.model.RoundCap())
                     .jointType(com.google.android.gms.maps.model.JointType.ROUND))
                 startM = m.addMarker(MarkerOptions().position(g(ri.start)).icon(dot(0xFF2FBF71.toInt(), 0xFFFFFFFF.toInt(), 16)).anchor(0.5f, 0.5f).title("Başlangıç").snippet(ri.startLabel))

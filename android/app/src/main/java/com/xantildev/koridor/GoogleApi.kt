@@ -102,6 +102,9 @@ object GoogleApi {
     /** Araç rotası (Routes API · Essentials): çizgi, metre, saniye. */
     suspend fun route(a: LatLng, b: LatLng): Triple<List<LatLng>, Double, Double> = routes(a, b, false).first()
 
+    /** Trafikli istek reddedildiyse nedeni (Detay'da gösterilir). */
+    @Volatile var trafficError: String? = null
+
     /** Alternatifli rota (en fazla 3). computeAlternativeRoutes ücret sınıfını değiştirmez (tek istek, Essentials). */
     suspend fun routes(a: LatLng, b: LatLng, alternatives: Boolean): List<Triple<List<LatLng>, Double, Double>> = withContext(Dispatchers.IO) {
         fun wp(p: LatLng) = JSONObject().put("location", JSONObject().put("latLng", JSONObject().put("latitude", p.lat).put("longitude", p.lon)))
@@ -111,7 +114,15 @@ object GoogleApi {
             .put("extraComputations", JSONArray().put("TRAFFIC_ON_POLYLINE"))
             .put("computeAlternativeRoutes", alternatives)
         if (AppSettings.avoidTolls) body.put("routeModifiers", JSONObject().put("avoidTolls", true))
-        val o = post("https://routes.googleapis.com/directions/v2:computeRoutes", "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.startLocation,routes.legs.steps.distanceMeters,routes.legs.steps.navigationInstruction,routes.travelAdvisory.speedReadingIntervals", body)
+        val mask = "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.startLocation,routes.legs.steps.distanceMeters,routes.legs.steps.navigationInstruction,routes.travelAdvisory.speedReadingIntervals"
+        val o = try {
+            post("https://routes.googleapis.com/directions/v2:computeRoutes", mask, body).also { trafficError = null }
+        } catch (e: IOException) {
+            // Trafikli istek reddedilirse trafiksiz dene (rota yine Google'dan gelsin)
+            trafficError = e.message
+            body.put("routingPreference", "TRAFFIC_UNAWARE"); body.remove("extraComputations")
+            post("https://routes.googleapis.com/directions/v2:computeRoutes", mask.substringBefore(",routes.travelAdvisory"), body)
+        }
         val arr = o.optJSONArray("routes") ?: JSONArray()
         val out = (0 until arr.length()).mapNotNull { i ->
             val r = arr.getJSONObject(i)

@@ -246,8 +246,8 @@ function setExtras(list){xs.forEach(function(o){o.setMap(null)});xs=[];list.forE
 document.addEventListener('webglcontextlost',function(){Android.lost()},true);
 function setNight(n){document.body.className=n?'night':''}
 function setRoute(line,s,e,fit){clear('route');if(line.length<2)return;var r=line.map(P);
- objs.route.push(new google.maps.Polyline({map:map,path:r,strokeColor:'#0B57D0',strokeWeight:12,zIndex:10}));
- objs.route.push(new google.maps.Polyline({map:map,path:r,strokeColor:'#4A8CFF',strokeWeight:8,zIndex:11}));
+ objs.route.push(new google.maps.Polyline({map:map,path:r,strokeColor:'#0B57D0',strokeOpacity:.55,strokeWeight:10,zIndex:10}));
+ objs.route.push(new google.maps.Polyline({map:map,path:r,strokeColor:'#4A8CFF',strokeOpacity:.65,strokeWeight:6,zIndex:11}));
  objs.route.push(dot(P(s[0]),'#2FBF71','#fff',7,15));objs.route.push(dot(P(e[0]),'#4DA3FF','#fff',8,15));
  if(fit){var b=new google.maps.LatLngBounds();r.forEach(function(p){b.extend(p)});map.fitBounds(b,60)}}
 function setCorr(list){clear('corr');list.forEach(function(c){
