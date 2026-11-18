@@ -116,18 +116,26 @@ object RadarMap {
         private set
     var currentText by mutableStateOf<String?>(null)
         private set
+    /** Bulunduğun yerden hedefe son EGM sonucu (bölüm hesabı olmasa da). */
+    var remainingNow by mutableStateOf<TrafikApi.Enforcement?>(null)
+        private set
+    /** "EGM sorgulanıyor…", hata ya da bilgi notu. */
+    var status by mutableStateOf<String?>(null)
+        private set
+
+    private fun clock(t: Long) = java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr", "TR")).format(java.util.Date(t))
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var job: Job? = null
     private var forTarget: Places.Place? = null
     private var lastSeg = -1
 
-    fun clear() { job?.cancel(); segs = emptyList(); updatedAt = 0; remainingText = null; currentText = null; forTarget = null; lastSeg = -1 }
+    fun clear() { job?.cancel(); segs = emptyList(); updatedAt = 0; remainingText = null; currentText = null; remainingNow = null; status = null; forTarget = null; lastSeg = -1 }
 
     /** Rota hazır olunca ve 15 dk'da bir (sürüş sırasında) çağrılır. Yalnız ilerideki bölümler sorgulanır. */
     fun refresh(inf: RouteSession.Info, here: LatLng?) {
         if (job?.isActive == true) return
-        if (forTarget != inf.target) { segs = emptyList(); lastSeg = -1 }
+        if (forTarget != inf.target) { segs = emptyList(); lastSeg = -1; remainingNow = null; updatedAt = 0 }
         forTarget = inf.target
         job = scope.launch {
             try { build(inf, here) } catch (_: Exception) { }
@@ -136,7 +144,18 @@ object RadarMap {
 
     private suspend fun build(inf: RouteSession.Info, here: LatLng?) {
         val total = inf.totalM
-        if (total < 8_000) return
+        status = "EGM sorgulanıyor…"
+        // 1) Bulunduğun yerden hedefe güncel toplam (her yenilemede; saat ekranda görünür)
+        val to = runCatching { DistrictFinder.nearest(inf.target.ll, inf.target.province) }.getOrNull()
+        val fromNow = runCatching { DistrictFinder.nearest(here ?: inf.start, null) }.getOrNull()
+        if (to == null || fromNow == null) { status = "EGM sorgusu yapılamadı (ilçe bulunamadı) · ${clock(System.currentTimeMillis())}"; return }
+        val now = runCatching { TrafikApi.counts(fromNow, to) }.getOrNull()
+        if (now == null || (now.radar == null && now.other == null)) { status = "EGM'ye ulaşılamadı · ${clock(System.currentTimeMillis())} · tekrar denenecek"; return }
+        if (RouteSession.info?.target != inf.target) return
+        remainingNow = now
+        updatedAt = System.currentTimeMillis()
+        status = null
+        // 2) İlçe arası bölümler (rota en az iki ilçeden geçiyorsa)
         val me = here?.let { inf.project(it).first } ?: 0.0
         // Rota boyunca 12 km'de bir nokta (en çok 14), ilçeye göre birleştir
         val step = maxOf(12_000.0, (total - me) / 14)
@@ -149,8 +168,7 @@ object RadarMap {
             s += step
             delay(400)   // ters coğrafi kodlama servisini yormamak için
         }
-        if (samples.size < 2) return
-        val to = DistrictFinder.nearest(inf.target.ll, inf.target.province)
+        if (samples.size < 2) { status = "Rota tek ilçede: bölüm ayrımı yok"; return }
         val counts = ArrayList<Triple<Double, String, TrafikApi.Enforcement?>>()
         for ((along, d) in samples) {
             if (RouteSession.info?.target != inf.target) return

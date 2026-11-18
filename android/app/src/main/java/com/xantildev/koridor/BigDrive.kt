@@ -135,10 +135,13 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
             if (rc != null) {
                 MapChip("🚓 $rc", Modifier, if (rc.startsWith("Bu bölümde uygulama yok")) BFg else BOver)
                 RadarMap.remainingText?.let { MapChip(it + (RadarMap.timeText()?.let { t -> " · $t" } ?: ""), Modifier, BWarn) }
-            } else RouteSession.enforcement?.let { e ->
+            } else (RadarMap.remainingNow ?: RouteSession.enforcement)?.let { e ->
                 val r = e.radar; val o = e.other
-                if (r != null || o != null) MapChip("🚓 Rotada " + listOfNotNull(r?.let { "$it radar" }, o?.let { "$it kontrol" }).joinToString(" · ") + " noktası · yerleri bilinmiyor", Modifier, BOver)
+                val t = RadarMap.timeText() ?: RouteSession.enforcementTime()
+                if (r != null || o != null) MapChip("🚓 Kalan rotada " + listOfNotNull(r?.let { "$it radar" }, o?.let { "$it kontrol" }).joinToString(" · ") +
+                    " noktası" + (t?.let { " · EGM $it" } ?: ""), Modifier, BOver)
             }
+            RadarMap.status?.let { MapChip(it, Modifier, BMuted) }
             if (RouteSession.shownAlts.size > 1) RouteChoices(compact = true)
         }
         if (s.driving && route != null && remTot != null && !detail) {

@@ -30,6 +30,9 @@ object Nav {
 object RouteSession {
     /** trafik.gov.tr'nin bu rota için verdiği trafik uygulaması sayıları (konum vermez). */
     var enforcement by mutableStateOf<TrafikApi.Enforcement?>(null)
+    var enforcementAt = 0L
+    fun enforcementTime(): String? = if (enforcementAt == 0L) null
+        else java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr", "TR")).format(java.util.Date(enforcementAt))
 
     class Info(
         val target: Places.Place,
@@ -227,7 +230,7 @@ object RouteSession {
     /** trafik.gov.tr'den rotadaki koridorlar (yalnız rota çizgisinin üstündekiler). */
     private suspend fun fetchCorridors(here: LatLng, p: Places.Place, line: List<LatLng>?): Triple<List<Corridor>, String, String> {
         val (all, a, b) = fetchAll(here, p)
-        TrafikApi.lastEnforcement?.let { e -> if (info?.target == p) enforcement = e }
+        TrafikApi.lastEnforcement?.let { e -> if (info?.target == p) { enforcement = e; enforcementAt = System.currentTimeMillis() } }
         val list = if (line != null) all.filter { onLine(it, line) } else all
         CorridorStore.addRoute(list)
         return Triple(list, a, b)
@@ -284,7 +287,7 @@ object RouteSession {
         scope.launch {
             try {
                 val (all, a, b) = fetchAll(here, inf.target)
-                TrafikApi.lastEnforcement?.let { if (info?.target == inf.target) enforcement = it }
+                TrafikApi.lastEnforcement?.let { if (info?.target == inf.target) { enforcement = it; enforcementAt = System.currentTimeMillis() } }
                 CorridorStore.addRoute(all.filter { onLine(it, inf.line) })
                 enforcement?.text?.let { Engine.say("$it Hız sınırına dikkat.", "radar", 60_000) }
             } catch (_: Exception) {
@@ -447,6 +450,7 @@ object RouteSession {
             try {
                 val (all, a, b) = fetchAll(here, p)
                 enforcement = TrafikApi.lastEnforcement
+                enforcementAt = System.currentTimeMillis()
                 val used = all.filter { c -> roads.isEmpty() || roads.any { onLine(c, it.first) } }
                 CorridorStore.addRoute(used)
                 pool = used
