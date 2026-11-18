@@ -583,6 +583,13 @@ private fun HomeOverlay(s: UiState, wide: Boolean, next: Corridor?, voice: () ->
                             color = BMuted, fontSize = 15.sp, maxLines = 1)
                         Text("Başlangıç: ${info.startLabel}" + (Places.lastFixSource?.let { " · $it" } ?: ""),
                             color = BMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        // Kayıtlı Ev/İş adresi aramada başka şehirdeki aynı isimli yere eşleşmiş olabilir
+                        val slot = when (info.target) { home -> "Ev"; work -> "İş"; else -> null }
+                        val far = Geo.dist(info.start, info.target.ll)
+                        if (slot != null && far > 150_000) Text(
+                            "⚠ Kayıtlı $slot adresi buraya ${(far / 1000).toInt()} km uzakta; yanlış yere kaydedilmiş olabilir. " +
+                                "Haritada doğru yere uzun basıp “${if (slot == "Ev") "🏠 Ev yap" else "💼 İş yap"}” ile düzelt.",
+                            color = BOver, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                     RoundIcon("✕", "Vazgeç") { rs.clear() }
                 }
