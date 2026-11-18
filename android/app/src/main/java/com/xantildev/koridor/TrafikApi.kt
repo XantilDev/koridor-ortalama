@@ -62,7 +62,7 @@ object TrafikApi {
     }
 
     /** Sitede "ROTA OLUŞTUR"a basmakla aynı: tek istek, rotadaki hız koridorları limitleriyle döner. */
-    private fun createRoute(from: District, to: District): JSONObject {
+    private fun createRouteOnce(from: District, to: District): JSONObject {
         val form = mapOf(
             "fromLatitude" to from.lat.toString(),
             "fromLongitude" to from.lon.toString(),
@@ -80,6 +80,24 @@ object TrafikApi {
             )
         }
         return o
+    }
+
+    /** Hangi yöntemle cevap alındı (Teşhis'te gösterilir). */
+    @Volatile var lastMethod: String? = null
+
+    /**
+     * Önce tam konumla sor; EGM "servis hatası" verirse sitenin yaptığı gibi ilçe merkezleriyle tekrar sor
+     * (site ilçe seçince ilçe merkezinin koordinatını gönderir).
+     */
+    private fun createRoute(from: District, to: District): JSONObject {
+        val fc = DistrictFinder.center(from.id); val tc = DistrictFinder.center(to.id)
+        // Önce sitenin yöntemi: ilçe merkezleri (tam konum bazen EGM'de servis hatası veriyor)
+        if (fc != null && tc != null) {
+            try {
+                return createRouteOnce(from.copy(lat = fc.lat, lon = fc.lon), to.copy(lat = tc.lat, lon = tc.lon)).also { lastMethod = "ilçe merkezi" }
+            } catch (_: IOException) { }
+        }
+        return createRouteOnce(from, to).also { lastMethod = "tam konum" }
     }
 
     /** Yalnız radar/kontrol sayıları (ilçe arası bölüm hesabı için; ana rota yanıtını değiştirmez). Hata varsa nedeni. */

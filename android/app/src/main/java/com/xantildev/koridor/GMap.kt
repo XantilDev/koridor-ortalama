@@ -73,6 +73,8 @@ class GMapHolder(ctx: Context) : LiveMapView {
     private var trail: Polyline? = null
     private var you: Marker? = null
     private var hasFix = false
+    private var navLatched = false
+    private var navSince = 0L
     private var routeEdge: Polyline? = null
     override var onLongPress: (LatLng) -> Unit = {}
     private var pin: Marker? = null
@@ -173,7 +175,12 @@ class GMapHolder(ctx: Context) : LiveMapView {
         if (p != null) {
             val gp = g(p)
             val h = heading.feed(p, s.speedKmh)
-            val nav = navMode && AppSettings.headingUp && s.driving
+            // Navigasyon görünümü kararlı kalsın: sürüş durumu anlık gidip gelse de 5 sn beklemeden çıkılmaz
+            val navNow = navMode && AppSettings.headingUp && s.driving
+            if (navNow) navSince = System.currentTimeMillis()
+            val nav = navNow || (navLatched && System.currentTimeMillis() - navSince < 5000)
+            navLatched = nav
+            MapDiag.text = "Harita: yön ${heading.source} · son 1 dk ${heading.turnsPerMin()} dönüş, ${NavZoom.changes.size} yakınlık değişimi · ${if (nav) "navigasyon" else "kuzey yukarı"}"
             val y = you ?: m.addMarker(MarkerOptions().position(gp).icon(dot(0xFFF2B632.toInt(), 0xFFFFFFFF.toInt(), 18)).anchor(0.5f, 0.5f).zIndex(5f)).also { you = it }
             y?.position = gp
             if (h != null && !arrowOn) {

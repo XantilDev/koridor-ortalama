@@ -52,6 +52,11 @@ object MapChoice {
 }
 
 /** Konum değişiminden gidiş yönü (derece, kuzey = 0). 12 m'den kısa hareketler ve 5 km/s altı yok sayılır. */
+/** Teşhis için: haritanın son durumu. */
+object MapDiag {
+    @Volatile var text: String = ""
+}
+
 /** GPS alıcısının verdiği son gidiş yönü (derece) ve zamanı. */
 object GpsHeading {
     @Volatile var deg: Float? = null
@@ -67,6 +72,11 @@ object GpsHeading {
  * 10 km/s altında (dururken GPS noktaları oynar) yön değiştirilmez; 8°'den küçük değişimler yok sayılır.
  */
 class HeadingTracker {
+    /** Teşhis: son 1 dakikadaki yön değişimleri ve kaynağı. */
+    val turns = ArrayDeque<Long>()
+    var source = "—"
+        private set
+    fun turnsPerMin(): Int { val n = System.currentTimeMillis(); while (turns.isNotEmpty() && n - turns.first() > 60_000) turns.removeFirst(); return turns.size }
     private var prev: LatLng? = null
     var deg: Float? = null
         private set
@@ -76,11 +86,11 @@ class HeadingTracker {
         val q = prev
         var b: Float? = null
         val gps = GpsHeading.fresh()
-        if (!slow && gps != null) b = gps
+        if (!slow && gps != null) { b = gps; source = "GPS yönü" }
         if (q == null) { prev = p; if (b != null) deg = b; return deg }
         val d = Geo.dist(q, p)
         if (d >= 20) {
-            if (b == null && !slow) b = bearing(q, p)
+            if (b == null && !slow) { b = bearing(q, p); source = "hareketten" }
             prev = p
         } else if (d > 300) prev = p
         if (b != null) {
@@ -89,7 +99,12 @@ class HeadingTracker {
                 var diff = b - old
                 while (diff > 180) diff -= 360
                 while (diff < -180) diff += 360
-                if (kotlin.math.abs(diff) < 8f) old else ((old + diff * 0.6f) % 360 + 360) % 360
+                if (kotlin.math.abs(diff) < 12f) old else {
+                    turns.addLast(System.currentTimeMillis())
+                    // Bir seferde en çok 35° döner (ani sıçramalar yumuşar)
+                    val step = diff.coerceIn(-35f, 35f) * 0.6f
+                    ((old + step) % 360 + 360) % 360
+                }
             }
         }
         return deg
@@ -130,16 +145,29 @@ fun arrowBitmap(density: Float, sizeDp: Int = 34): android.graphics.Bitmap {
  */
 object NavZoom {
     var bias = 0f
+    private var cur = 0f
+    private var changedAt = 0L
+    /** Teşhis: son 1 dakikadaki yakınlık değişimleri. */
+    val changes = ArrayDeque<Long>()
+
+    /**
+     * Hıza göre yakınlık; eşiklerde gidip gelmesin diye 8 km/s pay ve en az 8 sn arayla değişir.
+     * (40–50 km/s'de 45 eşiğinde her saniye yakınlaşıp uzaklaşıyordu.)
+     */
     fun of(kmh: Int?): Float {
-        val turn = Directions.next?.let { it.step.code != "straight" && it.distM < 400 } == true
+        val turn = Directions.next?.let { it.step.code != "straight" && it.distM < 300 } == true
         val v = kmh ?: 0
-        val base = when {
-            turn || v < 45 -> 18.3f
-            v < 75 -> 17.6f
-            v < 100 -> 16.9f
-            else -> 16.3f
+        fun level(x: Int) = when { turn || x < 45 -> 18.3f; x < 75 -> 17.6f; x < 100 -> 16.9f; else -> 16.3f }
+        val target = level(v)
+        val now = System.currentTimeMillis()
+        if (cur == 0f) cur = target
+        else if (target != cur && now - changedAt > 8000) {
+            // Pay: hız eşiğin 8 km/s ötesine geçmedikçe aynı seviyede kal
+            val confirmed = if (target > cur) level(v + 8) == target || turn else level(v - 8) == target
+            if (confirmed) { cur = target; changedAt = now; changes.addLast(now) }
         }
-        return (base + bias).coerceIn(13f, 20f)
+        while (changes.isNotEmpty() && now - changes.first() > 60_000) changes.removeFirst()
+        return (cur + bias).coerceIn(13f, 20f)
     }
 }
 

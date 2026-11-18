@@ -249,6 +249,9 @@ object DistrictFinder {
     private fun norm(s: String) = s.lowercase(java.util.Locale("tr", "TR"))
         .replace(" ili", "").replace(" province", "").trim()
 
+    /** İlçe merkezinin koordinatı (EGM sitesi ilçe seçilince bunu gönderir). */
+    fun center(id: Int): LatLng? = districts.values.asSequence().flatten().firstOrNull { it.id == id }?.let { LatLng(it.lat, it.lon) }
+
     suspend fun nearest(p: LatLng, provinceHint: String?): TrafikApi.District {
         val cs = cities ?: TrafikApi.cities().also { cities = it }
         val prov = provinceHint ?: runCatching { Places.provinceAt(p) }.getOrNull()

@@ -737,6 +737,7 @@ fun DiagBox() {
         Text("Rota: ${RouteSession.routeSource ?: "—"}", color = BMuted, fontSize = 12.sp)
         Text("Trafik: " + (if (tr.isEmpty()) "yavaş/sıkışık bölüm yok" else "${tr.count { it.level == 1 }} yavaş, ${tr.count { it.level >= 2 }} sıkışık bölüm") +
             (GoogleApi.trafficError?.let { " · trafikli istek hatası: $it" } ?: ""), color = BMuted, fontSize = 12.sp)
-        Text("EGM: " + RadarMap.diag(), color = if (RadarMap.lastError != null) BWarn else BMuted, fontSize = 12.sp)
+        Text("EGM: " + RadarMap.diag() + (TrafikApi.lastMethod?.let { " · yöntem: $it" } ?: ""), color = if (RadarMap.lastError != null) BWarn else BMuted, fontSize = 12.sp)
+        if (MapDiag.text.isNotBlank()) Text(MapDiag.text, color = BMuted, fontSize = 12.sp)
     }
 }
