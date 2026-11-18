@@ -104,8 +104,17 @@ object TrafikApi {
     suspend fun counts(from: District, to: District): Pair<Enforcement?, String?> = withContext(Dispatchers.IO) {
         try {
             val e = enforcement(createRoute(from, to))
-            if (e.radar == null && e.other == null) e to "yanıtta sayı yok" else e to null
-        } catch (e: Exception) { null to why(e) }
+            if (e.radar == null && e.other == null) e to "yanıtta sayı yok"
+            else { EgmShare.save(from.id, to.id, e); e to null }
+        } catch (e: Exception) {
+            // EGM kesik: başka bir çalışanın (ya da bizim) son aldığı sonuç varsa o kullanılır
+            EgmShare.load(from.id, to.id)?.let { c ->
+                TLog.i("egm", "EGM yanıt vermedi (${why(e)}); ortak kayıttan alındı", org.json.JSONObject()
+                    .put("from", from.id).put("to", to.id).put("yas_dk", (System.currentTimeMillis() - (c.cachedAt ?: 0)) / 60000))
+                return@withContext c to null
+            }
+            null to why(e)
+        }
     }
 
     /** Hata nedenini anlaşılır yaz (teşhis için). */
@@ -126,6 +135,7 @@ object TrafikApi {
         val o = createRoute(from, to)
         lastRaw = o.toString().take(200_000)
         lastEnforcement = try { enforcement(o) } catch (_: Exception) { null }
+        lastEnforcement?.let { EgmShare.save(from.id, to.id, it) }
         val data = o.optJSONObject("data") ?: return@withContext emptyList()
         val arr = data.optJSONArray("SpeedTunnels") ?: JSONArray()
         val out = ArrayList<Corridor>()
@@ -162,6 +172,8 @@ object TrafikApi {
 
     /** Rotadaki trafik uygulamaları: sayılar (radarlı/radarsız) ve varsa koordinatlı noktalar. */
     class Enforcement(val radar: Int?, val other: Int?, val points: List<LatLng>, val fields: String) {
+        /** EGM cevap vermediği için ortak kayıttan (Supabase) alındıysa o sonucun saati. */
+        var cachedAt: Long? = null
         val text: String?
             get() = when {
                 radar != null && other != null -> "Rotada $radar radar noktası, $other kontrol noktası var."
@@ -227,5 +239,40 @@ object TrafikApi {
         if (el.length() == 0) return@withContext null
         el.getJSONObject(0).optJSONObject("tags")?.optString("maxspeed")
             ?.takeWhile { it.isDigit() }?.toIntOrNull()
+    }
+}
+
+/**
+ * EGM sonuçlarının ortak kaydı (Supabase egm_sonuc): ilçe → ilçe radar/kontrol sayısı ve saati.
+ * EGM cevap verince yazılır; kesikken son bilinen sonuç (en çok 7 gün) okunur. Yalnız firma sürümü.
+ */
+object EgmShare {
+    private val mem = java.util.concurrent.ConcurrentHashMap<String, TrafikApi.Enforcement>()
+
+    fun save(from: Int, to: Int, e: TrafikApi.Enforcement) {
+        if (e.cachedAt != null || (e.radar == null && e.other == null)) return
+        val copy = TrafikApi.Enforcement(e.radar, e.other, emptyList(), "").also { it.cachedAt = System.currentTimeMillis() }
+        mem["$from/$to"] = copy
+        val token = Firma.logToken ?: return
+        Thread {
+            runCatching {
+                Firma.rpc("egm_sonuc_yaz", org.json.JSONObject().put("p_token", token).put("p_from", from).put("p_to", to)
+                    .put("p_radar", e.radar ?: org.json.JSONObject.NULL).put("p_kontrol", e.other ?: org.json.JSONObject.NULL))
+            }
+        }.start()
+    }
+
+    /** Çağıran zaten IO iş parçacığında. */
+    fun load(from: Int, to: Int): TrafikApi.Enforcement? {
+        val token = Firma.logToken
+        if (token != null) runCatching {
+            val text = Firma.rpc("egm_sonuc_oku", org.json.JSONObject().put("p_token", token).put("p_from", from).put("p_to", to))
+            if (text.isNotBlank() && text != "null") {
+                val o = org.json.JSONObject(text)
+                return TrafikApi.Enforcement(if (o.isNull("radar")) null else o.getInt("radar"), if (o.isNull("kontrol")) null else o.getInt("kontrol"), emptyList(), "")
+                    .also { it.cachedAt = o.getLong("zaman") * 1000 }
+            }
+        }
+        return mem["$from/$to"]
     }
 }

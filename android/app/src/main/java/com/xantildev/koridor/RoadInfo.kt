@@ -194,8 +194,14 @@ object RadarMap {
         }
         if (RouteSession.info?.target != inf.target) return
         remainingNow = now
-        updatedAt = System.currentTimeMillis()
+        val cached = now.cachedAt
+        updatedAt = cached ?: System.currentTimeMillis()
         fails = 0; lastError = null; status = null
+        if (cached != null) {
+            // EGM kesik: ortak kayıttan; 5 dk sonra EGM'ye tekrar sorulur
+            status = "EGM şu an yanıt vermiyor · ${clock(cached)} tarihli ortak kayıt gösteriliyor"
+            dueAt = System.currentTimeMillis() + 5 * 60_000L
+        }
         TLog.i("egm", "EGM: ${now.text ?: "sayı yok"}", org.json.JSONObject().put("yontem", TrafikApi.lastMethod)
             .put("radar", now.radar).put("kontrol", now.other).put("ilk_sonuc", seed != null))
         // 2) İlçe arası bölümler (rota en az iki ilçeden geçiyorsa)
