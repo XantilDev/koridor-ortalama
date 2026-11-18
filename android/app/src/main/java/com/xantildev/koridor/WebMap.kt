@@ -40,12 +40,15 @@ class WebMapHolder(ctx: Context) : LiveMapView {
     private var posKey = ""
     private var nightKey: Boolean? = null
     private var hadFix = false
+    private var extrasKey: String? = null
+    private var trafficOn: Boolean? = null
 
     inner class Bridge {
         @JavascriptInterface fun pan() { main.post { onUserPan() } }
         @JavascriptInterface fun alt(i: Int) { main.post { RouteSession.selectAlt(i) } }
         @JavascriptInterface fun ready() { main.post { ready = true; reset(); last?.let { (s, v, f) -> update(s, v, f) }; pinAt?.let { setPin(it) } } }
         @JavascriptInterface fun press(lat: Double, lon: Double) { main.post { onLongPress(LatLng(lat, lon)) } }
+        @JavascriptInterface fun lost() { main.post { load() } }
         @JavascriptInterface fun fail() { main.post { MapChoice.webFailed = true } }
     }
 
@@ -54,14 +57,42 @@ class WebMapHolder(ctx: Context) : LiveMapView {
         wv.layoutParams = android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
         wv.settings.javaScriptEnabled = true
         wv.settings.domStorageEnabled = true
-        wv.webViewClient = WebViewClient()
+        wv.webViewClient = object : WebViewClient() {
+            // Arka planda haritanın çizim süreci kapatıldıysa uygulama çökmesin: harita baştan kurulur
+            override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                main.post { MapChoice.webGen++ }
+                return true
+            }
+        }
         wv.addJavascriptInterface(Bridge(), "Android")
         wv.setOnTouchListener { v, _ -> v.parent?.requestDisallowInterceptTouchEvent(true); false }
+        load()
+    }
+
+    private fun load() {
+        ready = false
         wv.loadDataWithBaseURL("https://personel.aysoftbilisim.com/arac-harita/", HTML.replace("__KEY__", KEY), "text/html", "utf-8", null)
+    }
+
+    /**
+     * Arka plandan dönüş: harita sayfası duraklatılmış ya da çizim (WebGL) bağlamı kaybolmuş olabilir.
+     * 45 sn'den uzun kaldıysa sayfa baştan yüklenir; kısa ise uyandırılıp her şey yeniden gönderilir,
+     * 3 sn içinde cevap vermezse yine baştan yüklenir.
+     */
+    override fun foreground(awayMs: Long) {
+        wv.onResume(); wv.resumeTimers()
+        if (awayMs > 45_000 || !ready) { load(); return }
+        var answered = false
+        wv.evaluateJavascript("(function(){try{google.maps.event.trigger(map,'resize');return 'ok'}catch(e){return 'err'}})()") { r ->
+            answered = true
+            if (r?.contains("ok") != true) load() else { reset(); last?.let { (s, v, f) -> update(s, v, f) } }
+        }
+        main.postDelayed({ if (!answered) load() }, 3000)
     }
 
     private fun reset() {
         drawnRoute = null; corrKey = -1; altsKey = null; altIdx = -1; trailSize = 0; posKey = ""; nightKey = null; hadFix = false
+        extrasKey = null; trafficOn = null
     }
 
     private fun js(code: String) { if (ready) wv.evaluateJavascript(code, null) }
@@ -125,6 +156,17 @@ class WebMapHolder(ctx: Context) : LiveMapView {
             else js("setTrail(${pts(tr.subList(trailSize, tr.size))},false)")
             trailSize = tr.size
         }
+        // Trafik ve radar bölümleri
+        val xk = MapExtras.key()
+        if (xk != extrasKey) {
+            extrasKey = xk
+            js("setExtras([" + MapExtras.lines().joinToString(",") { l ->
+                val rgb = String.format("#%06X", l.color and 0xFFFFFF)
+                val a = ((l.color ushr 24) and 0xFF) / 255.0
+                "{\"p\":${pts(l.pts)},\"c\":\"$rgb\",\"o\":${String.format(java.util.Locale.US, "%.2f", a)},\"w\":${l.widthDp},\"z\":${if (l.z < 1f) 8 else 12}}"
+            } + "])")
+        }
+        if (trafficOn != AppSettings.trafficLayer) { trafficOn = AppSettings.trafficLayer; js("setTraffic(${AppSettings.trafficLayer})") }
         // Konum ve kamera
         val p = s.pos
         if (p != null) {
@@ -196,6 +238,12 @@ function init(){
  google.maps.event.addListenerOnce(map,'tilesloaded',go);setTimeout(go,4000);
  addEventListener('resize',size);size();
 }
+var tl=null;
+function setTraffic(on){if(on&&!tl){tl=new google.maps.TrafficLayer();tl.setMap(map)}else if(!on&&tl){tl.setMap(null);tl=null}}
+var xs=[];
+function setExtras(list){xs.forEach(function(o){o.setMap(null)});xs=[];list.forEach(function(l){
+ xs.push(new google.maps.Polyline({map:map,path:l.p.map(P),strokeColor:l.c,strokeOpacity:l.o,strokeWeight:l.w,zIndex:l.z,clickable:false}))})}
+document.addEventListener('webglcontextlost',function(){Android.lost()},true);
 function setNight(n){document.body.className=n?'night':''}
 function setRoute(line,s,e,fit){clear('route');if(line.length<2)return;var r=line.map(P);
  objs.route.push(new google.maps.Polyline({map:map,path:r,strokeColor:'#0B57D0',strokeWeight:12,zIndex:10}));

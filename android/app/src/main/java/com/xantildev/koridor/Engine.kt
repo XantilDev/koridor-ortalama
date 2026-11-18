@@ -571,7 +571,8 @@ object Engine {
             val lim = r.c.limit
             val a = r.avg
             if (lim != null && a != null && r.elapsed > 60 && a > lim && r.stopStart == null) {
-                if (lastOverBeep + 45000 < System.currentTimeMillis()) { lastOverBeep = System.currentTimeMillis(); Speaker.beep(3) }
+                // Uyarı sesi yalnız %10 toleransın üstünde (kırmızı); tolerans içinde sadece söz
+                if (a > lim * 1.1 && lastOverBeep + 45000 < System.currentTimeMillis()) { lastOverBeep = System.currentTimeMillis(); Speaker.beep(3) }
                 say("Dikkat, ortalaman ${a.roundToInt()}. Limit $lim.", "over", 45000, corridor = true)
             }
         }

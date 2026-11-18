@@ -543,6 +543,8 @@ fun QuickSettings(onClose: () -> Unit, onAll: () -> Unit) {
                 Text("Harita", color = XFg, fontWeight = FontWeight.SemiBold)
                 Segments(listOf("google" to "Google", "osm" to "OpenStreetMap"), AppSettings.mapProvider, 46, 15) { AppSettings.chooseMap(it) }
             }
+            Text("Haritada trafik renkleri", color = XFg, fontWeight = FontWeight.SemiBold)
+            Segments(listOf("acik" to "Açık", "kapali" to "Kapalı"), if (AppSettings.trafficLayer) "acik" else "kapali", 44, 14) { AppSettings.chooseTrafficLayer(it == "acik") }
             Text("Ücretli yollar (otoyol, köprü)", color = XFg, fontWeight = FontWeight.SemiBold)
             Segments(listOf("kullan" to "Kullan", "kacin" to "Kullanma"), if (AppSettings.avoidTolls) "kacin" else "kullan", 44, 14) {
                 AppSettings.chooseAvoidTolls(it == "kacin")

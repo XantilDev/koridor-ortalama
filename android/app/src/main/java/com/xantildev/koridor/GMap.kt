@@ -140,6 +140,8 @@ class GMapHolder(ctx: Context) : LiveMapView {
             drawCorridors(m, sim)
         }
         drawAlts(m)
+        drawExtras(m)
+        if (m.isTrafficEnabled != AppSettings.trafficLayer) m.isTrafficEnabled = AppSettings.trafficLayer
         val ri = RouteSession.info
         if (ri !== drawnRoute) {
             drawnRoute = ri
@@ -215,6 +217,22 @@ class GMapHolder(ctx: Context) : LiveMapView {
             runCatching { m.moveCamera(CameraUpdateFactory.newLatLngBounds(b, mv.width, mv.height, (60 * density).toInt())) }
         } else if (tries < 20) {
             mv.postDelayed({ fit(m, b, tries + 1) }, 150)
+        }
+    }
+
+    private var drawnExtras: String? = null
+    private val extraLines = ArrayList<Polyline>()
+
+    /** Trafik (sarı/kırmızı) ve radarlı ilçe bölümleri (turuncu bant). */
+    private fun drawExtras(m: GoogleMap) {
+        val k = MapExtras.key()
+        if (k == drawnExtras) return
+        drawnExtras = k
+        extraLines.forEach { it.remove() }
+        extraLines.clear()
+        MapExtras.lines().forEach { l ->
+            extraLines.add(m.addPolyline(PolylineOptions().addAll(l.pts.map { g(it) }).color(l.color).width(l.widthDp * density).zIndex(l.z)
+                .jointType(com.google.android.gms.maps.model.JointType.ROUND)))
         }
     }
 

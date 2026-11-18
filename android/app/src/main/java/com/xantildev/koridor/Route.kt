@@ -43,6 +43,9 @@ object RouteSession {
         val lineSource: String,
         val corridorsMissing: Boolean = false
     ) {
+        /** Bu rota bilgisinin oluşturulduğu an (trafik yenilemesi için). */
+        val made = System.currentTimeMillis()
+
         fun withCorridors(list: List<Corridor>, a: String, b: String) =
             Info(target, list, line, totalM, durationS, start, a, b, lineSource, false)
 
@@ -96,7 +99,23 @@ object RouteSession {
             return out
         }
 
-        private fun pointAt(s: Double): LatLng {
+        /** Çizginin i. noktasının baştan uzaklığı (m). */
+        fun alongAt(i: Int): Double = if (cum.isEmpty()) 0.0 else cum[i.coerceIn(cum.indices)]
+
+        /** Rotanın s0–s1 metreleri arasındaki parçası. */
+        fun sliceAlong(s0: Double, s1: Double): List<LatLng> {
+            if (line.size < 2 || s1 <= s0) return emptyList()
+            val out = ArrayList<LatLng>()
+            out.add(pointAt(s0))
+            for (i in line.indices) if (cum[i] > s0 && cum[i] < s1) out.add(line[i])
+            out.add(pointAt(s1))
+            return out
+        }
+
+        /** Kalan süre (sn): Google/OSRM'in bu rota için verdiği süreden, kalan mesafe oranıyla (trafikli süre gelirse o). */
+        fun etaS(remainingM: Double): Double = if (totalM > 0) durationS * (remainingM / totalM).coerceIn(0.0, 1.5) else remainingM / (80 / 3.6)
+
+        fun pointAt(s: Double): LatLng {
             for (i in 0 until line.size - 1) {
                 if (cum[i + 1] >= s) {
                     val seg = cum[i + 1] - cum[i]
@@ -195,6 +214,7 @@ object RouteSession {
         alts = emptyList()
         altIndex = 0
         previewing = false
+        RadarMap.clear()
     }
 
     /** trafik.gov.tr'den iki ilçe arasındaki bütün koridorlar (filtresiz). */
@@ -276,11 +296,20 @@ object RouteSession {
     fun onFix(p: LatLng, kmh: Int?) {
         val inf = info ?: return
         Directions.onFix(p, kmh, inf)
+        Traffic.onFix(p, inf)
+        RadarMap.onFix(p, inf)
+        val tNow = System.currentTimeMillis()
+        if (!previewing && Engine.state.value.driving) {
+            // EGM radar sayıları 15 dk'da bir (EGM ~30 dk'da bir günceller); trafikli süre 5 dk'da bir
+            if (tNow - radarAt > 15 * 60_000L) { radarAt = tNow; RadarMap.refresh(inf, p) }
+            if (GoogleApi.enabled && !busy && !rerouting && tNow - maxOf(trafficAt, inf.made) > 5 * 60_000L &&
+                Geo.dist(p, inf.target.ll) > 1500) { trafficAt = tNow; trafficRefresh(inf, p) }
+        }
         if (!altPicked && alts.isNotEmpty() && Geo.dist(p, inf.start) > 1500) altPicked = true   // yola çıkıldı, seçenekler kalkar
         if (enforcement == null && enfAsked !== inf) refreshEnforcement(p)
         // Rotada radar noktası varsa her 30 km'de bir hatırlat
         val e = enforcement
-        if (e != null && ((e.radar ?: 0) > 0 || (e.other ?: 0) > 0)) {
+        if (RadarMap.segs.isEmpty() && e != null && ((e.radar ?: 0) > 0 || (e.other ?: 0) > 0)) {
             val w = warnAt
             if (w == null) warnAt = p
             else if (Geo.dist(w, p) > 30_000) {
@@ -295,6 +324,28 @@ object RouteSession {
         if (offSince == 0L) { offSince = now; return }
         if (now - offSince < 15_000 || now - lastReroute < 60_000) return
         reroute(inf, p)
+    }
+
+    private var radarAt = 0L
+    private var trafficAt = 0L
+
+    /**
+     * Trafikli süreyi buradan yenile. Google aynı yolu veriyorsa çizgi de (trafik renkleriyle) yenilenir;
+     * başka yol öneriyorsa çizgimiz kalır, sadece varış süresi güncellenir.
+     */
+    private fun trafficRefresh(inf: Info, here: LatLng) {
+        scope.launch {
+            val road = try { GoogleApi.route(here, inf.target.ll) } catch (_: Exception) { null } ?: return@launch
+            val cur = info
+            if (cur !== inf || rerouting) return@launch
+            val probe = road.first.filterIndexed { i, _ -> i % 4 == 0 }.take(60)
+            val same = probe.all { Geo.distToLine(it, inf.line) < 200 }
+            info = if (same) Info(inf.target, inf.corridors, road.first, road.second, road.third, here, inf.startLabel, inf.targetLabel, inf.lineSource, inf.corridorsMissing)
+            else {
+                val rem = inf.remainingFrom(here).coerceAtLeast(1.0)
+                Info(inf.target, inf.corridors, inf.line, inf.totalM, road.third * inf.totalM / rem, inf.start, inf.startLabel, inf.targetLabel, inf.lineSource, inf.corridorsMissing)
+            }
+        }
     }
 
     private fun reroute(inf: Info, here: LatLng) {
@@ -413,6 +464,7 @@ object RouteSession {
             val total = road?.second ?: (Geo.dist(here, p.ll) * 1.25)
             val dur = road?.third ?: (total / (80 / 3.6))
             info = Info(p, corridors, line, total, dur, here, startLabel, targetLabel, if (road != null) "yol" else "düz", err != null)
+            info?.let { RadarMap.refresh(it, here); radarAt = System.currentTimeMillis() }
             if (err != null) retryCorridors(p, road?.first)
             msg = listOfNotNull(Places.lastFixNote, err).joinToString("\n").ifBlank { null }
             msgBad = err != null

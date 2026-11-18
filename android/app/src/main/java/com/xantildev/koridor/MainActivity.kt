@@ -356,8 +356,8 @@ private fun Hud(s: UiState, onSign: (Corridor) -> Unit) {
     val col = when {
         big == null -> Muted
         !inC || lim == null -> Fg
-        big > lim -> Over
-        big > lim * 0.95 -> Warn
+        big > lim * 1.1 -> Over
+        big > lim -> Warn
         else -> Ok
     }
     Column(
@@ -551,7 +551,7 @@ private fun WhatIf(s: UiState, onSetLimit: (Corridor) -> Unit) {
 @Composable
 internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false, controlsLeft: Boolean = false, nav: Boolean = false, rightInset: androidx.compose.ui.unit.Dp = 0.dp) {
     val ctx = LocalContext.current
-    val holder = remember(AppSettings.mapProvider, MapChoice.webFailed) { MapChoice.create(ctx) }
+    val holder = remember(AppSettings.mapProvider, MapChoice.webFailed, MapChoice.webGen) { MapChoice.create(ctx) }
     var follow by remember { mutableStateOf(true) }
     holder.onUserPan = { follow = false }
     var picked by remember { mutableStateOf<LatLng?>(null) }
@@ -580,9 +580,20 @@ internal fun LiveMap(s: UiState, ver: Int, controls: Boolean = false, controlsLe
             ) { Text("Konumuma dön") }
         }
     }
-    DisposableEffect(holder) {
+    // Arka plana gidip gelince haritayı uyandır (araç ekranındaki web haritası donmasın)
+    val life = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(holder, life) {
         holder.resume()
-        onDispose { holder.pause() }
+        var stoppedAt = 0L
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            when (e) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> stoppedAt = System.currentTimeMillis()
+                androidx.lifecycle.Lifecycle.Event.ON_START -> if (stoppedAt > 0) { holder.foreground(System.currentTimeMillis() - stoppedAt); stoppedAt = 0 }
+                else -> {}
+            }
+        }
+        life.lifecycle.addObserver(obs)
+        onDispose { life.lifecycle.removeObserver(obs); holder.pause() }
     }
 }
 
@@ -903,8 +914,7 @@ private fun durText(sec: Double): String {
 private fun TripCard(s: UiState, info: RouteSession.Info, onGoRoute: () -> Unit) {
     val pos = if (s.mode == "gps" || s.mode == "bekle") s.pos else null
     val rem = if (pos != null) info.remainingFrom(pos) else info.totalM
-    val v = s.moveAvg?.takeIf { it > 20 } ?: (info.totalM / info.durationS * 3.6)
-    val tRem = rem / (v / 3.6)
+    val tRem = info.etaS(rem)   // rotanın (trafikli) süresinden
     val arrive = java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr", "TR"))
         .format(java.util.Date(System.currentTimeMillis() + (tRem * 1000).toLong()))
     val next = if (pos == null) null else info.corridors.map { CorridorStore.withOverride(it) }

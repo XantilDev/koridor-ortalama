@@ -45,7 +45,8 @@ object Directions {
         // Sesli yönlendirme: hıza göre uzaktan bir kez, yaklaşınca bir kez, dönüşte bir kez
         val st = steps[i]
         if (st.code == "straight") return
-        val key = "${System.identityHashCode(inf.line)}/$i"
+        // Anahtar manevranın yeri: rota yenilense de aynı dönüş iki kez söylenmez
+        val key = String.format(java.util.Locale.US, "%.4f,%.4f", st.at.lat, st.at.lon)
         val fast = (kmh ?: 0) >= 80
         val far = if (fast) 1500.0 else 500.0
         val near = if (fast) 400.0 else 150.0

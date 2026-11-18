@@ -62,7 +62,7 @@ object TrafikApi {
     }
 
     /** Sitede "ROTA OLUŞTUR"a basmakla aynı: tek istek, rotadaki hız koridorları limitleriyle döner. */
-    suspend fun route(from: District, to: District): List<Corridor> = withContext(Dispatchers.IO) {
+    private fun createRoute(from: District, to: District): JSONObject {
         val form = mapOf(
             "fromLatitude" to from.lat.toString(),
             "fromLongitude" to from.lon.toString(),
@@ -79,6 +79,16 @@ object TrafikApi {
                 else m.ifBlank { "Servis hata verdi" }
             )
         }
+        return o
+    }
+
+    /** Yalnız radar/kontrol sayıları (ilçe arası bölüm hesabı için; ana rota yanıtını değiştirmez). */
+    suspend fun counts(from: District, to: District): Enforcement? = withContext(Dispatchers.IO) {
+        try { enforcement(createRoute(from, to)) } catch (_: Exception) { null }
+    }
+
+    suspend fun route(from: District, to: District): List<Corridor> = withContext(Dispatchers.IO) {
+        val o = createRoute(from, to)
         lastRaw = o.toString().take(200_000)
         lastEnforcement = try { enforcement(o) } catch (_: Exception) { null }
         val data = o.optJSONObject("data") ?: return@withContext emptyList()

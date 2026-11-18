@@ -80,8 +80,8 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
     val col = when {
         avg == null -> BMuted
         !inC || lim == null -> BOk
-        avg > lim -> BOver
-        avg > lim * 0.95 -> BWarn
+        avg > lim * 1.1 -> BOver   // %10'dan fazla: kırmızı
+        avg > lim -> BWarn         // limit ile %10 arası: sarı (tolerans)
         else -> BOk
     }
     val route = RouteSession.info
@@ -130,20 +130,26 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
                 }
                 topChip?.let { MapChip(it, Modifier, if (inC || c != null) BWarn else BFg) }
             }
-            RouteSession.enforcement?.let { e ->
+            Traffic.ahead?.let { MapChip(it, Modifier, if (Traffic.aheadJam) BOver else BWarn) }
+            val rc = RadarMap.currentText
+            if (rc != null) {
+                MapChip("🚓 $rc", Modifier, if (rc.startsWith("Bu bölümde uygulama yok")) BFg else BOver)
+                RadarMap.remainingText?.let { MapChip(it + (RadarMap.timeText()?.let { t -> " · $t" } ?: ""), Modifier, BWarn) }
+            } else RouteSession.enforcement?.let { e ->
                 val r = e.radar; val o = e.other
                 if (r != null || o != null) MapChip("🚓 Rotada " + listOfNotNull(r?.let { "$it radar" }, o?.let { "$it kontrol" }).joinToString(" · ") + " noktası · yerleri bilinmiyor", Modifier, BOver)
             }
             if (RouteSession.shownAlts.size > 1) RouteChoices(compact = true)
         }
         if (s.driving && route != null && remTot != null && !detail) {
-            val eta = clock(remTot / (cruise / 3.6))
+            val etaSec = route.etaS(remTot)   // Google'ın trafikli süresinden; 5 dk'da bir yenilenir
+            val eta = clock(etaSec)
             Column(
                 Modifier.align(Alignment.BottomStart).padding(10.dp).widthIn(max = freeW.coerceAtLeast(120.dp))
                     .clip(RoundedCornerShape(18.dp)).background(BGlass).border(1.dp, BLine, RoundedCornerShape(18.dp))
                     .clickable { detail = true }.padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
-                Text(etaText(remTot / (cruise / 3.6)),
+                Text(etaText(etaSec),
                     color = BOk, fontSize = if (wide) 26.sp else 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 Text("${Geo.fmtKm(remTot)} · varış $eta", color = BFg, fontSize = if (wide) 17.sp else 15.sp, maxLines = 1)
                 Text(route.target.name, color = BMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -266,7 +272,7 @@ private fun SpeedBox(sp: Int?, lim: Int?, roomy: Boolean, m: Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally) {
         Text("ANLIK", color = BMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Text(sp?.toString() ?: "—", fontSize = if (roomy) 34.sp else 28.sp, lineHeight = if (roomy) 36.sp else 30.sp, fontWeight = FontWeight.Bold,
-            color = if (sp != null && lim != null && sp > lim) BOver else BFg, maxLines = 1)
+            color = if (sp != null && lim != null && sp > lim * 1.1) BOver else if (sp != null && lim != null && sp > lim) BWarn else BFg, maxLines = 1)
     }
 }
 
@@ -338,6 +344,7 @@ private fun DetailCard(
             Text("✕", color = BFg, fontSize = 22.sp, modifier = Modifier.clip(CircleShape).clickable { onHide() }.padding(10.dp))
         }
         if (Firma.enabled) TripTypeChip()
+        RadarSegList()
         val enf = RouteSession.enforcement
         val ctx = LocalContext.current
         when {
@@ -564,6 +571,7 @@ private fun HomeOverlay(s: UiState, wide: Boolean, next: Corridor?, voice: () ->
                     RoundIcon("✕", "Vazgeç") { rs.clear() }
                 }
                 rs.enforcement?.text?.let { Text("🚓 $it", color = BOver, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                RadarSegList()
                 RouteChoices(compact = true)
                 Button(onClick = { rs.startNav(ctx) }, modifier = Modifier.fillMaxWidth().height(60.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = BOk, contentColor = Color(0xFF06140C))) {
@@ -690,4 +698,23 @@ fun MuayeneChip() {
         modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (red) Color(0xFFDC2626) else Color(0xFFC2410C))
             .padding(horizontal = 14.dp, vertical = 9.dp)
     )
+}
+
+/** EGM radar/kontrol sayıları ilçe arası bölümlere göre (fark yöntemi). Yerler kesin değil, bölüm bölüm. */
+@Composable
+fun RadarSegList() {
+    val inf = RouteSession.info ?: return
+    val list = RadarMap.segs.filter { it.info.target == inf.target }
+    if (list.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("🚓 İlçe arası radar/kontrol (EGM · ${RadarMap.timeText() ?: ""})", color = BMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        list.forEach { g ->
+            val any = g.radar > 0 || g.other > 0
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${g.fromName} – ${g.toName}", color = BFg, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (any) listOfNotNull(g.radar.takeIf { it > 0 }?.let { "$it radar" }, g.other.takeIf { it > 0 }?.let { "$it kontrol" }).joinToString(" · ") else "yok",
+                    color = if (any) BOver else BOk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
 }

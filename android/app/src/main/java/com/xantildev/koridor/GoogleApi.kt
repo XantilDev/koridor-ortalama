@@ -106,16 +106,25 @@ object GoogleApi {
     suspend fun routes(a: LatLng, b: LatLng, alternatives: Boolean): List<Triple<List<LatLng>, Double, Double>> = withContext(Dispatchers.IO) {
         fun wp(p: LatLng) = JSONObject().put("location", JSONObject().put("latLng", JSONObject().put("latitude", p.lat).put("longitude", p.lon)))
         val body = JSONObject().put("origin", wp(a)).put("destination", wp(b))
-            .put("travelMode", "DRIVE").put("routingPreference", "TRAFFIC_UNAWARE").put("languageCode", "tr").put("units", "METRIC")
+            // Trafikli süre ve rota boyunca trafik yoğunluğu (Routes "Pro" sınıfı; ayda 5.000 ücretsiz)
+            .put("travelMode", "DRIVE").put("routingPreference", "TRAFFIC_AWARE").put("languageCode", "tr").put("units", "METRIC")
+            .put("extraComputations", JSONArray().put("TRAFFIC_ON_POLYLINE"))
             .put("computeAlternativeRoutes", alternatives)
         if (AppSettings.avoidTolls) body.put("routeModifiers", JSONObject().put("avoidTolls", true))
-        val o = post("https://routes.googleapis.com/directions/v2:computeRoutes", "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.startLocation,routes.legs.steps.distanceMeters,routes.legs.steps.navigationInstruction", body)
+        val o = post("https://routes.googleapis.com/directions/v2:computeRoutes", "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.startLocation,routes.legs.steps.distanceMeters,routes.legs.steps.navigationInstruction,routes.travelAdvisory.speedReadingIntervals", body)
         val arr = o.optJSONArray("routes") ?: JSONArray()
         val out = (0 until arr.length()).mapNotNull { i ->
             val r = arr.getJSONObject(i)
             val enc = r.optJSONObject("polyline")?.optString("encodedPolyline")?.ifBlank { null } ?: return@mapNotNull null
             val line = decode(enc)
             Directions.store(line, Directions.fromGoogle(r))
+            r.optJSONObject("travelAdvisory")?.optJSONArray("speedReadingIntervals")?.let { iv ->
+                Traffic.store(line, (0 until iv.length()).mapNotNull { k ->
+                    val x = iv.optJSONObject(k) ?: return@mapNotNull null
+                    val lv = when (x.optString("speed")) { "SLOW" -> 1; "TRAFFIC_JAM" -> 2; else -> 0 }
+                    if (lv == 0) null else Traffic.Seg(x.optInt("startPolylinePointIndex", 0), x.optInt("endPolylinePointIndex", 0), lv)
+                })
+            }
             Triple(line, r.optDouble("distanceMeters", Geo.pathLength(line)), r.optString("duration").removeSuffix("s").toDoubleOrNull() ?: 0.0)
         }.take(3)
         if (out.isEmpty()) throw IOException("Google: rota bulunamadı")

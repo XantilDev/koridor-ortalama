@@ -29,6 +29,26 @@ class MapHolder(ctx: Context) : LiveMapView {
     private val routeLine = Polyline(map)
     private val routeEdge = Polyline(map)
     private val corrUnder = FolderOverlay()
+    private val extraUnder = FolderOverlay()
+    private val extraOver = FolderOverlay()
+    private var drawnExtras: String? = null
+
+    private fun drawExtras() {
+        val k = MapExtras.key()
+        if (k == drawnExtras) return
+        drawnExtras = k
+        extraUnder.items.clear(); extraOver.items.clear()
+        val dn = map.resources.displayMetrics.density
+        MapExtras.lines().forEach { l ->
+            val pl = Polyline(map)
+            pl.setPoints(l.pts.map { GeoPoint(it.lat, it.lon) })
+            pl.outlinePaint.color = l.color
+            pl.outlinePaint.strokeWidth = l.widthDp * dn
+            pl.outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+            if (l.z < 1f) extraUnder.add(pl) else extraOver.add(pl)
+        }
+        map.invalidate()
+    }
     private var drawnRoute: RouteSession.Info? = null
     private var fittedTarget: Places.Place? = null
     private val altLines = ArrayList<Polyline>()
@@ -112,9 +132,11 @@ class MapHolder(ctx: Context) : LiveMapView {
         routeLine.outlinePaint.strokeWidth = 8 * dn
         routeLine.outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
         routeLine.outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+        map.overlays.add(extraUnder)
         map.overlays.add(corrUnder)
         map.overlays.add(routeEdge)
         map.overlays.add(routeLine)
+        map.overlays.add(extraOver)
         map.overlays.add(corr)
         map.overlays.add(trail)
         map.overlays.add(0, org.osmdroid.views.overlay.MapEventsOverlay(object : org.osmdroid.events.MapEventsReceiver {
@@ -146,6 +168,7 @@ class MapHolder(ctx: Context) : LiveMapView {
             drawCorridors(sim)
         }
         drawAlts()
+        drawExtras()
         val ri = RouteSession.info
         if (ri !== drawnRoute) {
             drawnRoute = ri

@@ -37,6 +37,7 @@ object AppSettings {
         overlay = prefs.getBoolean("gosterge", true)
         headingUp = prefs.getBoolean("yon_yukari", true)
         avoidTolls = prefs.getBoolean("ucretsiz_yol", false)
+        trafficLayer = prefs.getBoolean("trafik_katmani", true)
         loadMap()
     }
 
@@ -46,6 +47,11 @@ object AppSettings {
     /** Rota hesabında ücretli yollar (otoyol, köprü) kullanılmasın. */
     var avoidTolls by mutableStateOf(false)
         private set
+    /** Haritada bütün yollarda trafik renkleri (yeşil/sarı/kırmızı). */
+    var trafficLayer by mutableStateOf(true)
+        private set
+    fun chooseTrafficLayer(v: Boolean) { trafficLayer = v; prefs.edit().putBoolean("trafik_katmani", v).apply() }
+
     fun chooseAvoidTolls(v: Boolean) { avoidTolls = v; prefs.edit().putBoolean("ucretsiz_yol", v).apply() }
 
     fun chooseHeadingUp(v: Boolean) { headingUp = v; prefs.edit().putBoolean("yon_yukari", v).apply() }

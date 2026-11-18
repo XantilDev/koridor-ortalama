@@ -16,6 +16,8 @@ interface LiveMapView {
     var onLongPress: (LatLng) -> Unit
     /** Seçilen noktayı iğne ile göster (null: kaldır). */
     fun setPin(p: LatLng?)
+    /** Uygulama arka plandan öne geldi (awayMs: ne kadar arkada kaldı). */
+    fun foreground(awayMs: Long) {}
     fun update(s: UiState, ver: Int, follow: Boolean)
     fun recenter(s: UiState)
     fun zoomIn()
@@ -38,6 +40,8 @@ object MapChoice {
 
     /** Web haritası anahtar hatası verdiyse bu açılışta OpenStreetMap kullanılır. */
     var webFailed by androidx.compose.runtime.mutableStateOf(false)
+    /** Web haritasının çizim süreci kapanırsa artar: harita baştan kurulur. */
+    var webGen by androidx.compose.runtime.mutableIntStateOf(0)
 
     /** Google Play Hizmetleri yoksa (araç ekranı) Google haritası web üzerinden açılır. */
     fun create(ctx: Context): LiveMapView = when {

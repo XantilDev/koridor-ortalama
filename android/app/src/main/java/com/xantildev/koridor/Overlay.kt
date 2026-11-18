@@ -173,7 +173,7 @@ object Overlay {
             inC -> {
                 lim = c?.limit
                 val a = s.avg
-                val col = when { a == null || lim == null -> Color.WHITE; a > lim -> over; a > lim * 0.95 -> warn; else -> ok }
+                val col = when { a == null || lim == null -> Color.WHITE; a > lim * 1.1 -> over; a > lim -> warn; else -> ok }
                 big.text = a?.roundToInt()?.toString() ?: "—"
                 big.setTextColor(col)
                 unit.text = if (compact) "EDS ort." else "km/s"
@@ -193,7 +193,7 @@ object Overlay {
                 lim = s.roadLimit
                 val sp = s.speedKmh
                 big.text = sp?.toString() ?: "—"
-                big.setTextColor(if (lim != null && (sp ?: 0) > lim) over else Color.WHITE)
+                big.setTextColor(if (lim != null && (sp ?: 0) > lim * 1.1) over else if (lim != null && (sp ?: 0) > lim) warn else Color.WHITE)
                 unit.text = "km/s"
                 small.text = if (s.gpsText.startsWith("Konum alınamıyor")) "⚠ " + s.gpsText
                     else if (s.driving) "anlık hız · yolculuk ort. ${s.tripAvg?.roundToInt() ?: "—"} · ${Geo.fmtKm(s.trip.dist)}" else "anlık hız · hazır"
