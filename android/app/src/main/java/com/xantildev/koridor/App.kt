@@ -32,6 +32,7 @@ class App : Application() {
         Speaker.init(this)
         Firma.init(this)
         TLog.init(this)
+        OurRadar.init(this)
         Configuration.getInstance().load(this, getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
         Configuration.getInstance().userAgentValue = packageName
     }

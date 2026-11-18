@@ -520,6 +520,7 @@ object RouteSession {
                     (if (corridors.isEmpty()) "${p.name} rotası hazır. Rotada kayıtlı ortalama hız koridoru yok."
                     else "${p.name} rotası hazır. Rotanızda ${corridors.size} ortalama hız koridoru var.") +
                         (enforcement?.text?.let { " $it" } ?: "") +
+                        (info?.let { OurRadar.routeSummary(it) }?.let { " $it" } ?: "") +
                         if (alts.size > 1) " ${alts.size} farklı rota var, ekrandan seçebilirsin." else ""
                 )
             }

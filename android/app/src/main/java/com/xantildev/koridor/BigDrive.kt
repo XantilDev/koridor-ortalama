@@ -131,6 +131,8 @@ fun BigDrive(s: UiState, onClose: () -> Unit) {
                 topChip?.let { MapChip(it, Modifier, if (inC || c != null) BWarn else BFg) }
             }
             Traffic.ahead?.let { MapChip(it, Modifier, if (Traffic.aheadJam) BOver else BWarn) }
+            OurRadar.aheadText?.let { MapChip(it, Modifier, BOver) }
+            MarkUndoChip()
             val rc = RadarMap.currentText
             if (rc != null) {
                 MapChip("🚓 $rc", Modifier, if (rc.startsWith("Bu bölümde uygulama yok")) BFg else BOver)
@@ -252,6 +254,14 @@ private fun SidePanel(
         Button(onClick = voice, modifier = Modifier.fillMaxWidth().height(bh), contentPadding = PaddingValues(4.dp),
             colors = ButtonDefaults.buttonColors(containerColor = BPanel, contentColor = BFg)) {
             Text(if (roomy) "🎤 Konuş" else "🎤", fontSize = fs, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        if (OurRadar.enabled) {
+            var marking by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<LatLng?>(null) }
+            Button(onClick = { marking = s.pos ?: LatLng(0.0, 0.0) }, modifier = Modifier.fillMaxWidth().height(bh), contentPadding = PaddingValues(4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7F1D1D), contentColor = Color.White)) {
+                Text(if (roomy) "🚓 İşaretle" else "🚓", fontSize = fs, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            marking?.let { at -> MarkDialog(at.takeIf { it.lat != 0.0 }) { marking = null } }
         }
         Button(onClick = { TrackingService.end(ctx) }, modifier = Modifier.fillMaxWidth().height(bh), contentPadding = PaddingValues(4.dp),
             colors = ButtonDefaults.buttonColors(containerColor = BOver, contentColor = Color.White)) {
@@ -720,6 +730,8 @@ fun RadarSegList() {
                 Text("${g.fromName} – ${g.toName}", color = BFg, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(if (any) listOfNotNull(g.radar.takeIf { it > 0 }?.let { "$it radar" }, g.other.takeIf { it > 0 }?.let { "$it kontrol" }).joinToString(" · ") else "yok",
                     color = if (any) BOver else BOk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                val ours = OurRadar.inSegment(inf, inf.project(g.info.pointAt(g.startAlong)).first, inf.project(g.info.pointAt(g.endAlong)).first)
+                if (ours > 0) Text(" · bizde $ours nokta", color = BWarn, fontSize = 13.sp, maxLines = 1)
             }
         }
     }
@@ -759,5 +771,49 @@ fun DiagBox() {
             ) { Text("📤 Logları şimdi gönder", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
             sendMsg?.let { Text(it, color = BFg, fontSize = 12.sp) }
         }
+    }
+}
+
+/**
+ * Radar / çevirme işaretleme: büyük iki düğme. Konum, düğmeye basıldığı anda alınır
+ * (seçim yapılırken araç ilerlese de nokta doğru kalır). 10 sn içinde seçilmezse kapanır.
+ */
+@Composable
+fun MarkDialog(at: LatLng?, onDone: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(Unit) { kotlinx.coroutines.delay(10_000); onDone() }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDone,
+        containerColor = BPanel,
+        title = { Text("Ne gördün?", color = BFg, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = { OurRadar.mark("radar", at); onDone() }, modifier = Modifier.fillMaxWidth().height(72.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = BOver, contentColor = Color.White)) {
+                    Text("📷  Radar", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                }
+                Button(onClick = { OurRadar.mark("cevirme", at); onDone() }, modifier = Modifier.fillMaxWidth().height(72.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = BBlue, contentColor = Color.White)) {
+                    Text("👮  Çevirme", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                }
+                Text("Nokta, düğmeye bastığın yerde kaydedilir. Bütün çalışanların haritasına eklenir.", color = BMuted, fontSize = 13.sp)
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onDone) { Text("Vazgeç", color = BFg) } }
+    )
+}
+
+/** İşaretten sonra 15 sn: "Radar işaretlendi · Geri al". */
+@Composable
+fun MarkUndoChip() {
+    val id = OurRadar.lastMarkId ?: return
+    var now by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+    androidx.compose.runtime.LaunchedEffect(id) { while (true) { kotlinx.coroutines.delay(1000); now = System.currentTimeMillis() } }
+    if (now - OurRadar.lastMarkAt > 15_000) return
+    Row(
+        Modifier.clip(RoundedCornerShape(14.dp)).background(BGlass).border(1.dp, BLine, RoundedCornerShape(14.dp)).padding(start = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("✓ " + (OurRadar.lastMarkText ?: "İşaretlendi"), color = BOk, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        androidx.compose.material3.TextButton(onClick = { OurRadar.undo(id) }) { Text("Geri al", color = BWarn, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
     }
 }

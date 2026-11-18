@@ -494,6 +494,7 @@ object Engine {
             }
         }
         if (mode == "gps") RouteSession.onFix(f.ll, speedKmh)
+        if (mode == "gps") OurRadar.onFix(f.ll, speedKmh)
         if (run == null) checkRoadLimit(f.ll)
 
         val r = run

@@ -47,6 +47,14 @@ class MapHolder(ctx: Context) : LiveMapView {
             pl.outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
             if (l.z < 1f) extraUnder.add(pl) else extraOver.add(pl)
         }
+        MapExtras.points().forEach { x ->
+            val mk = Marker(map)
+            mk.position = GeoPoint(x.ll.lat, x.ll.lon)
+            mk.icon = android.graphics.drawable.BitmapDrawable(map.resources, pointBitmap(x.icon, dn))
+            mk.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            mk.title = x.title
+            extraOver.add(mk)
+        }
         map.invalidate()
     }
     private var drawnRoute: RouteSession.Info? = null

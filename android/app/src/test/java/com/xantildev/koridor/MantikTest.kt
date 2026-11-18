@@ -133,3 +133,56 @@ class HeadingTest {
         assertEquals(before, h.deg)
     }
 }
+
+class OurRadarTest {
+    private val day = 86_400_000L
+    private fun m(id: Int, lat: Double, lon: Double, yon: Int?, d: Int, tur: String = "radar") =
+        OurRadar.Mark("t$id", tur, LatLng(lat, lon), yon, 1_700_000_000_000L + d * day)
+
+    @Test fun yakinIsaretlerBirlesir() {
+        // Aynı yerde (100 m içinde), aynı yönde, farklı günlerde üç işaret → tek nokta, 3 kez, 3 gün
+        val s = OurRadar.cluster(listOf(m(1, 38.3000, 33.5000, 90, 0), m(2, 38.3005, 33.5008, 95, 30), m(3, 38.2998, 33.4995, 85, 400)))
+        assertEquals(1, s.size)
+        assertEquals(3, s[0].count)
+        assertEquals(3, s[0].days)
+    }
+
+    @Test fun karsiSeritAyriNokta() {
+        // Aynı yerde ama ters yöne gidenler ayrı nokta (karşı şeritteki radar bizi ilgilendirmez)
+        val s = OurRadar.cluster(listOf(m(1, 38.3, 33.5, 90, 0), m(2, 38.3001, 33.5001, 270, 1)))
+        assertEquals(2, s.size)
+    }
+
+    @Test fun uzakIsaretlerAyri() {
+        val s = OurRadar.cluster(listOf(m(1, 38.30, 33.50, 90, 0), m(2, 38.30, 33.52, 90, 0)))   // ~1,7 km
+        assertEquals(2, s.size)
+    }
+
+    @Test fun cevirmeVeRadarSayilir() {
+        val s = OurRadar.cluster(listOf(m(1, 38.3, 33.5, 90, 0, "cevirme"), m(2, 38.3, 33.5, 90, 1, "cevirme"), m(3, 38.3, 33.5, 90, 2)))
+        assertEquals(1, s.size); assertEquals(2, s[0].cevirme); assertEquals(1, s[0].radar); assertEquals("cevirme", s[0].tur)
+    }
+
+    @Test fun rotaUzerindekiNoktaBulunur() {
+        // Doğuya giden düz rota; üstünde doğuya bakan bir radar, kenarda (500 m) bir radar, ters yönde bir radar
+        val line = (0..100).map { LatLng(38.3, 33.40 + it * 0.002) }   // ~17 km
+        val spots = OurRadar.cluster(listOf(m(1, 38.3002, 33.50, 90, 0), m(2, 38.3045, 33.52, 90, 0), m(3, 38.3, 33.56, 270, 0)))
+        val on = OurRadar.onLine(spots, line, 0.0, Double.MAX_VALUE)
+        assertEquals(1, on.size)
+        assertTrue("rota üstündeki mesafe ${on[0].second}", on[0].second in 8_000.0..9_500.0)
+    }
+
+    @Test fun yonsuzIsaretHerYoneUyar() {
+        val line = (0..50).map { LatLng(38.3, 33.40 + it * 0.002) }
+        val spots = OurRadar.cluster(listOf(m(1, 38.3, 33.45, null, 0)))
+        assertEquals(1, OurRadar.onLine(spots, line, 0.0, Double.MAX_VALUE).size)
+    }
+
+    @Test fun rotasizGidisYonundeIleride() {
+        val spots = OurRadar.cluster(listOf(m(1, 38.3, 33.51, 90, 0)))   // ~870 m doğuda
+        val p = LatLng(38.3, 33.50)
+        assertNotNull(OurRadar.aheadByHeading(spots, p, 90, 60))
+        assertNull(OurRadar.aheadByHeading(spots, p, 270, 60))   // arkamızda
+        assertNull(OurRadar.aheadByHeading(spots, p, 90, 10))    // çok yavaş
+    }
+}

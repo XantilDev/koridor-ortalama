@@ -18,7 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.fillMaxWidth
 import java.util.Locale
 
-/** Mikrofon düğmesi: dokun, konuş. "bitir", "devam", "ev", "iş", kayıtlı yer adı ya da il/yer adı. */
+/** Mikrofon düğmesi: dokun, konuş. "bitir", "devam", "ev", "iş", "radar", "çevirme", kayıtlı yer adı ya da il/yer adı. */
 object Voice {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val TR = Locale("tr", "TR")
@@ -39,7 +39,9 @@ object Voice {
                     if (hasLocation(ctx)) TrackingService.start(ctx) else Engine.say("Önce konum izni vermen gerekiyor.")
                 } else Engine.say("Sürüş devam ediyor.")
             }
-            t == "ev" || t == "eve" || t == "eve git" || t == "ev rotası" || t == "eve gidiyorum" -> slot(ctx, "ev", "Ev")
+            OurRadar.enabled && (has("radar") || t == "kamera") && words.size <= 3 -> OurRadar.mark("radar")
+            OurRadar.enabled && (has("çevirme", "cevirme", "polis", "jandarma", "kontrol")) && words.size <= 3 -> OurRadar.mark("cevirme")
+                        t == "ev" || t == "eve" || t == "eve git" || t == "ev rotası" || t == "eve gidiyorum" -> slot(ctx, "ev", "Ev")
             t == "iş" || t == "işe" || t == "işe git" || t == "iş rotası" || t == "işe gidiyorum" -> slot(ctx, "is", "İş")
             else -> {
                 val q = t.removeSuffix(" rotası").removeSuffix(" rota").removeSuffix(" git").removeSuffix("e git").trim()

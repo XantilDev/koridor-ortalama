@@ -165,6 +165,9 @@ class WebMapHolder(ctx: Context) : LiveMapView {
                 val a = ((l.color ushr 24) and 0xFF) / 255.0
                 "{\"p\":${pts(l.pts)},\"c\":\"$rgb\",\"o\":${String.format(java.util.Locale.US, "%.2f", a)},\"w\":${l.widthDp},\"z\":${if (l.z < 1f) 8 else 12}}"
             } + "])")
+            js("setPts([" + MapExtras.points().joinToString(",") { x ->
+                "[${x.ll.lat},${x.ll.lon},${org.json.JSONObject.quote(x.icon)},${org.json.JSONObject.quote(x.title)}]"
+            } + "])")
         }
         if (trafficOn != AppSettings.trafficLayer) { trafficOn = AppSettings.trafficLayer; js("setTraffic(${AppSettings.trafficLayer})") }
         // Konum ve kamera
@@ -243,6 +246,10 @@ function setTraffic(on){if(on&&!tl){tl=new google.maps.TrafficLayer();tl.setMap(
 var xs=[];
 function setExtras(list){xs.forEach(function(o){o.setMap(null)});xs=[];list.forEach(function(l){
  xs.push(new google.maps.Polyline({map:map,path:l.p.map(P),strokeColor:l.c,strokeOpacity:l.o,strokeWeight:l.w,zIndex:l.z,clickable:false}))})}
+var ps=[];
+function setPts(l){ps.forEach(function(o){o.setMap(null)});ps=[];l.forEach(function(q){
+ ps.push(new google.maps.Marker({map:map,position:P([q[0],q[1]]),title:q[3],zIndex:25,label:{text:q[2],fontSize:'17px'},
+  icon:{path:google.maps.SymbolPath.CIRCLE,scale:15,fillColor:'#fff',fillOpacity:1,strokeColor:'#DC2626',strokeWeight:3}}))})}
 document.addEventListener('webglcontextlost',function(){Android.lost()},true);
 function setNight(n){document.body.className=n?'night':''}
 function setRoute(line,s,e,fit){clear('route');if(line.length<2)return;var r=line.map(P);

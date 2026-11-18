@@ -14,13 +14,19 @@ import kotlinx.coroutines.launch
 /** Haritada rotanın üstüne çizilen ek çizgiler (trafik, radar bölümleri). Üç harita da bunu çizer. */
 object MapExtras {
     class XLine(val pts: List<LatLng>, val color: Int, val widthDp: Float, val z: Float)
+    /** Haritada simge: bizim tahmini radar / çevirme noktalarımız. */
+    class XPoint(val ll: LatLng, val icon: String, val title: String)
 
     private var bump = 0
     private var cacheKey: String? = null
     private var cache: List<XLine> = emptyList()
 
     /** Değişince haritalar yeniden çizer. */
-    fun key(): String = "${System.identityHashCode(RouteSession.info)}/${Traffic.version}/${RadarMap.updatedAt}/$bump"
+    fun key(): String = "${System.identityHashCode(RouteSession.info)}/${Traffic.version}/${RadarMap.updatedAt}/${OurRadar.version}/$bump"
+
+    fun points(): List<XPoint> = OurRadar.spots.map { s ->
+        XPoint(s.ll, s.icon, "Tahmini ${s.label} · ${OurRadar.seenText(s)}")
+    }
 
     fun rebuild() { bump++ }
 

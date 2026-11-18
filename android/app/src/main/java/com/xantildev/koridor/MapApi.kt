@@ -214,3 +214,19 @@ fun labelBitmap(text: String, selected: Boolean, density: Float): android.graphi
     c.drawText(text, 13 * density, h / 2f - (tp.descent() + tp.ascent()) / 2, tp)
     return b
 }
+
+/** Haritadaki bizim radar/çevirme noktası simgesi: beyaz daire, kırmızı kenar, ortada emoji. */
+private val pointIcons = HashMap<String, android.graphics.Bitmap>()
+fun pointBitmap(icon: String, density: Float): android.graphics.Bitmap = pointIcons.getOrPut("$icon/$density") {
+    val px = (30 * density).toInt()
+    val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(bmp)
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    p.color = 0xFFFFFFFF.toInt(); c.drawCircle(px / 2f, px / 2f, px / 2f - 1, p)
+    p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = 3 * density; p.color = 0xFFDC2626.toInt()
+    c.drawCircle(px / 2f, px / 2f, px / 2f - 2 * density, p)
+    val tp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 16 * density; textAlign = android.graphics.Paint.Align.CENTER }
+    val fm = tp.fontMetrics
+    c.drawText(icon, px / 2f, px / 2f - (fm.ascent + fm.descent) / 2, tp)
+    bmp
+}

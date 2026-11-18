@@ -231,6 +231,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
 
     private var drawnExtras: String? = null
     private val extraLines = ArrayList<Polyline>()
+    private val extraPoints = ArrayList<Marker>()
 
     /** Trafik (sarı/kırmızı) ve radarlı ilçe bölümleri (turuncu bant). */
     private fun drawExtras(m: GoogleMap) {
@@ -239,6 +240,12 @@ class GMapHolder(ctx: Context) : LiveMapView {
         drawnExtras = k
         extraLines.forEach { it.remove() }
         extraLines.clear()
+        extraPoints.forEach { it.remove() }
+        extraPoints.clear()
+        MapExtras.points().forEach { x ->
+            m.addMarker(MarkerOptions().position(g(x.ll)).icon(BitmapDescriptorFactory.fromBitmap(pointBitmap(x.icon, density)))
+                .anchor(0.5f, 0.5f).title(x.title).zIndex(4f))?.let { extraPoints.add(it) }
+        }
         MapExtras.lines().forEach { l ->
             extraLines.add(m.addPolyline(PolylineOptions().addAll(l.pts.map { g(it) }).color(l.color).width(l.widthDp * density).zIndex(l.z)
                 .jointType(com.google.android.gms.maps.model.JointType.ROUND)))

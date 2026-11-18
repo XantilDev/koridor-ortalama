@@ -621,6 +621,10 @@ private fun PinDialog(pt: LatLng, onDone: () -> Unit) {
                     OutlinedButton(onClick = { Places.saveSlot(ctx, "ev", p); Engine.say("Ev kaydedildi"); onDone() }, modifier = Modifier.weight(1f)) { Text("🏠 Ev yap", maxLines = 1) }
                     OutlinedButton(onClick = { Places.saveSlot(ctx, "is", p); Engine.say("İş kaydedildi"); onDone() }, modifier = Modifier.weight(1f)) { Text("💼 İş yap", maxLines = 1) }
                 }
+                if (!naming && OurRadar.enabled) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { OurRadar.mark("radar", pt); onDone() }, modifier = Modifier.weight(1f)) { Text("📷 Radar var", maxLines = 1) }
+                    OutlinedButton(onClick = { OurRadar.mark("cevirme", pt); onDone() }, modifier = Modifier.weight(1f)) { Text("👮 Çevirme var", maxLines = 1) }
+                }
             }
         },
         confirmButton = {
