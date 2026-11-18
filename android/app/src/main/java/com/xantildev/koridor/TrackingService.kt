@@ -89,6 +89,9 @@ class TrackingService : Service() {
             // GPS varken ağ konumu yalnız GPS sustuğunda kullanılır
             if (loc.provider != LocationManager.GPS_PROVIDER && System.currentTimeMillis() - lastFixWall < 5000) return
             lastFixWall = System.currentTimeMillis()
+            // GPS'in kendi gidiş yönü (hareketten hesaplanandan çok daha kararlı); yalnız 10 km/s üstünde
+            if (loc.provider == LocationManager.GPS_PROVIDER && loc.hasBearing() && loc.hasSpeed() && loc.speed > 2.8f)
+                GpsHeading.set(loc.bearing)
             Engine.onFix(
                 Fix(
                     loc.latitude, loc.longitude, loc.time,

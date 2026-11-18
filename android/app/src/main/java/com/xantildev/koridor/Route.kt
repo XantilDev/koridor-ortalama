@@ -304,7 +304,7 @@ object RouteSession {
         val tNow = System.currentTimeMillis()
         if (!previewing && Engine.state.value.driving) {
             // EGM radar sayıları 15 dk'da bir (EGM ~30 dk'da bir günceller); trafikli süre 5 dk'da bir
-            if (tNow - radarAt > 15 * 60_000L) { radarAt = tNow; RadarMap.refresh(inf, p) }
+            if (RadarMap.dueAt in 1..tNow) RadarMap.refresh(inf, p)
             if (GoogleApi.enabled && !busy && !rerouting && tNow - maxOf(trafficAt, inf.made) > 5 * 60_000L &&
                 Geo.dist(p, inf.target.ll) > 1500) { trafficAt = tNow; trafficRefresh(inf, p) }
         }
@@ -331,7 +331,6 @@ object RouteSession {
 
     /** Rotanın nereden geldiği (Detay'da gösterilir; trafik verisi neden yok anlamak için). */
     var routeSource by mutableStateOf<String?>(null)
-    private var radarAt = 0L
     private var trafficAt = 0L
 
     /**
@@ -472,7 +471,7 @@ object RouteSession {
             val total = road?.second ?: (Geo.dist(here, p.ll) * 1.25)
             val dur = road?.third ?: (total / (80 / 3.6))
             info = Info(p, corridors, line, total, dur, here, startLabel, targetLabel, if (road != null) "yol" else "düz", err != null)
-            info?.let { RadarMap.refresh(it, here); radarAt = System.currentTimeMillis() }
+            info?.let { RadarMap.refresh(it, here, enforcement) }
             if (err != null) retryCorridors(p, road?.first)
             msg = listOfNotNull(Places.lastFixNote, err).joinToString("\n").ifBlank { null }
             msgBad = err != null

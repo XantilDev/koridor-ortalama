@@ -311,6 +311,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         SettingsCard()
         FirmaCard()
         ExitInfo.last?.let { Text(it, color = Muted, fontSize = 12.sp) }
+        if (RouteSession.info != null) DiagBox()
         TrafikApi.lastEnforcement?.let { e ->
             Text("Son rota yanıtındaki alanlar: ${e.fields.ifBlank { "—" }}", color = Muted, fontSize = 12.sp)
         }

@@ -348,14 +348,7 @@ private fun DetailCard(
         }
         if (Firma.enabled) TripTypeChip()
         RadarSegList()
-        // Teşhis: rota kaynağı ve trafik verisi (trafik renkleri neden yok anlamak için)
-        route?.let { inf ->
-            val tr = Traffic.of(inf.line)
-            Text("Rota: ${RouteSession.routeSource ?: "—"} · trafik verisi: " +
-                (if (tr.isEmpty()) "yavaş/sıkışık bölüm yok" else "${tr.count { it.level == 1 }} yavaş, ${tr.count { it.level >= 2 }} sıkışık bölüm") +
-                (GoogleApi.trafficError?.let { " · trafikli istek hatası: $it" } ?: ""),
-                color = BMuted, fontSize = 12.sp)
-        }
+        DiagBox()
         val enf = RouteSession.enforcement
         val ctx = LocalContext.current
         when {
@@ -727,5 +720,23 @@ fun RadarSegList() {
                     color = if (any) BOver else BOk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
+    }
+}
+
+/** 🔧 Teşhis: rota kaynağı, trafik verisi ve EGM sorgularının durumu (sorun olunca nedenini görmek için). */
+@Composable
+fun DiagBox() {
+    val inf = RouteSession.info
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(12.dp)).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text("🔧 Teşhis", color = BFg, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        if (inf == null) { Text("Rota yok.", color = BMuted, fontSize = 12.sp); return@Column }
+        val tr = Traffic.of(inf.line)
+        Text("Rota: ${RouteSession.routeSource ?: "—"}", color = BMuted, fontSize = 12.sp)
+        Text("Trafik: " + (if (tr.isEmpty()) "yavaş/sıkışık bölüm yok" else "${tr.count { it.level == 1 }} yavaş, ${tr.count { it.level >= 2 }} sıkışık bölüm") +
+            (GoogleApi.trafficError?.let { " · trafikli istek hatası: $it" } ?: ""), color = BMuted, fontSize = 12.sp)
+        Text("EGM: " + RadarMap.diag(), color = if (RadarMap.lastError != null) BWarn else BMuted, fontSize = 12.sp)
     }
 }

@@ -130,35 +130,66 @@ object RadarMap {
     private var forTarget: Places.Place? = null
     private var lastSeg = -1
 
-    fun clear() { job?.cancel(); segs = emptyList(); updatedAt = 0; remainingText = null; currentText = null; remainingNow = null; status = null; forTarget = null; lastSeg = -1 }
+    // Teşhis için: son deneme, son başarı, son hata, sonraki deneme zamanı
+    var lastTryAt by mutableStateOf(0L)
+        private set
+    var lastError by mutableStateOf<String?>(null)
+        private set
+    /** Bu zamandan sonra tekrar sorgulanır (başarıda 15 dk, hatada 2 → 5 → 10 dk). */
+    var dueAt = 0L
+        private set
+    private var fails = 0
 
-    /** Rota hazır olunca ve 15 dk'da bir (sürüş sırasında) çağrılır. Yalnız ilerideki bölümler sorgulanır. */
-    fun refresh(inf: RouteSession.Info, here: LatLng?) {
+    fun clear() {
+        job?.cancel(); segs = emptyList(); updatedAt = 0; remainingText = null; currentText = null; remainingNow = null
+        status = null; forTarget = null; lastSeg = -1; lastError = null; lastTryAt = 0; dueAt = 0; fails = 0
+    }
+
+    private fun failed(why: String) {
+        fails++
+        lastError = why
+        val wait = when (fails) { 1 -> 2; 2 -> 5; else -> 10 } * 60_000L
+        dueAt = System.currentTimeMillis() + wait
+        status = "EGM'ye ulaşılamadı: $why · sonraki deneme ${clock(dueAt)}"
+    }
+
+    /**
+     * Rota hazır olunca (seed: rota sorgusunun kendi sonucu, aynı soruyu iki kez sormamak için) ve
+     * dueAt geldikçe çağrılır. Yalnız ilerideki bölümler sorgulanır.
+     */
+    fun refresh(inf: RouteSession.Info, here: LatLng?, seed: TrafikApi.Enforcement? = null) {
         if (job?.isActive == true) return
-        if (forTarget != inf.target) { segs = emptyList(); lastSeg = -1; remainingNow = null; updatedAt = 0 }
+        if (forTarget != inf.target) { segs = emptyList(); lastSeg = -1; remainingNow = null; updatedAt = 0; fails = 0; lastError = null }
         forTarget = inf.target
+        dueAt = System.currentTimeMillis() + 15 * 60_000L
         job = scope.launch {
-            try { build(inf, here) } catch (_: Exception) { }
+            try { build(inf, here, seed) } catch (e: Exception) { failed(TrafikApi.why(e)) }
         }
     }
 
-    private suspend fun build(inf: RouteSession.Info, here: LatLng?) {
+    private suspend fun build(inf: RouteSession.Info, here: LatLng?, seed: TrafikApi.Enforcement?) {
         val total = inf.totalM
-        status = "EGM sorgulanıyor…"
-        // 1) Bulunduğun yerden hedefe güncel toplam (her yenilemede; saat ekranda görünür)
+        lastTryAt = System.currentTimeMillis()
         val to = runCatching { DistrictFinder.nearest(inf.target.ll, inf.target.province) }.getOrNull()
-        val fromNow = runCatching { DistrictFinder.nearest(here ?: inf.start, null) }.getOrNull()
-        if (to == null || fromNow == null) { status = "EGM sorgusu yapılamadı (ilçe bulunamadı) · ${clock(System.currentTimeMillis())}"; return }
-        val now = runCatching { TrafikApi.counts(fromNow, to) }.getOrNull()
-        if (now == null || (now.radar == null && now.other == null)) { status = "EGM'ye ulaşılamadı · ${clock(System.currentTimeMillis())} · tekrar denenecek"; return }
+        if (to == null) { failed("hedefin ilçesi bulunamadı"); return }
+        // 1) Bulunduğun yerden hedefe güncel toplam
+        val now: TrafikApi.Enforcement
+        if (seed != null && (seed.radar != null || seed.other != null)) now = seed
+        else {
+            status = "EGM sorgulanıyor…"
+            val fromNow = runCatching { DistrictFinder.nearest(here ?: inf.start, null) }.getOrNull()
+            if (fromNow == null) { failed("bulunduğun ilçe bulunamadı"); return }
+            val (e, err) = TrafikApi.counts(fromNow, to)
+            if (e == null || err != null) { failed(err ?: "bilinmeyen hata"); return }
+            now = e
+        }
         if (RouteSession.info?.target != inf.target) return
         remainingNow = now
         updatedAt = System.currentTimeMillis()
-        status = null
+        fails = 0; lastError = null; status = null
         // 2) İlçe arası bölümler (rota en az iki ilçeden geçiyorsa)
         val me = here?.let { inf.project(it).first } ?: 0.0
-        // Rota boyunca 12 km'de bir nokta (en çok 14), ilçeye göre birleştir
-        val step = maxOf(12_000.0, (total - me) / 14)
+        val step = maxOf(12_000.0, (total - me) / 12)
         var s = me
         val samples = ArrayList<Pair<Double, TrafikApi.District>>()
         while (s < total - 4_000) {
@@ -170,11 +201,22 @@ object RadarMap {
         }
         if (samples.size < 2) { status = "Rota tek ilçede: bölüm ayrımı yok"; return }
         val counts = ArrayList<Triple<Double, String, TrafikApi.Enforcement?>>()
-        for ((along, d) in samples) {
+        for ((i, pair) in samples.withIndex()) {
+            val (along, d) = pair
             if (RouteSession.info?.target != inf.target) return
-            val e = runCatching { TrafikApi.counts(d, to) }.getOrNull()
+            // İlk nokta bulunduğun yer: az önceki sonuç kullanılır (EGM'ye tekrar sorulmaz)
+            val e = if (i == 0 && Math.abs(along - me) < 1) now else {
+                delay(3000)   // EGM'yi yormamak için aralıklı
+                val (r, err) = TrafikApi.counts(d, to)
+                if (r == null || err != null) {
+                    lastError = err
+                    status = "Bölüm hesabı yarım kaldı: ${err ?: "hata"} · sonraki deneme ${clock(System.currentTimeMillis() + 5 * 60_000L)}"
+                    dueAt = System.currentTimeMillis() + 5 * 60_000L
+                    return
+                }
+                r
+            }
             counts.add(Triple(along, d.name.substringBefore(","), e))
-            delay(800)   // EGM'yi yormamak için sırayla
         }
         val out = ArrayList<Seg>()
         for (i in counts.indices) {
@@ -194,6 +236,15 @@ object RadarMap {
         segs = out
         updatedAt = System.currentTimeMillis()
     }
+
+    /** Teşhis kutusu için tek satır. */
+    fun diag(): String = listOfNotNull(
+        if (updatedAt > 0) "son başarılı sorgu ${clock(updatedAt)}" else "henüz başarılı sorgu yok",
+        if (lastTryAt > 0) "son deneme ${clock(lastTryAt)}" else null,
+        lastError?.let { "hata: $it" },
+        if (dueAt > 0) "sonraki ${clock(dueAt)}" else null,
+        if (segs.isNotEmpty()) "${segs.size} bölüm" else null
+    ).joinToString(" · ")
 
     /** Sürüş sırasında: içinde bulunulan bölüm ve kalan toplam; yeni radarlı bölüme girince bir kez söyler. */
     fun onFix(p: LatLng, inf: RouteSession.Info) {

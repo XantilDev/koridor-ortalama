@@ -82,9 +82,26 @@ object TrafikApi {
         return o
     }
 
-    /** Yalnız radar/kontrol sayıları (ilçe arası bölüm hesabı için; ana rota yanıtını değiştirmez). */
-    suspend fun counts(from: District, to: District): Enforcement? = withContext(Dispatchers.IO) {
-        try { enforcement(createRoute(from, to)) } catch (_: Exception) { null }
+    /** Yalnız radar/kontrol sayıları (ilçe arası bölüm hesabı için; ana rota yanıtını değiştirmez). Hata varsa nedeni. */
+    suspend fun counts(from: District, to: District): Pair<Enforcement?, String?> = withContext(Dispatchers.IO) {
+        try {
+            val e = enforcement(createRoute(from, to))
+            if (e.radar == null && e.other == null) e to "yanıtta sayı yok" else e to null
+        } catch (e: Exception) { null to why(e) }
+    }
+
+    /** Hata nedenini anlaşılır yaz (teşhis için). */
+    fun why(e: Exception): String = when (e) {
+        is java.net.UnknownHostException -> "internet yok ya da EGM adresi çözülemedi"
+        is java.net.SocketTimeoutException -> "EGM zamanında cevap vermedi"
+        is java.net.ConnectException -> "EGM bağlantıyı reddetti"
+        is javax.net.ssl.SSLException -> "güvenli bağlantı kurulamadı"
+        else -> when (val m = e.message ?: "") {
+            "HTTP 429" -> "çok fazla istek (HTTP 429, geçici engel)"
+            "HTTP 403" -> "erişim engellendi (HTTP 403)"
+            "HTTP 503", "HTTP 502", "HTTP 500" -> "EGM servisi hata verdi ($m)"
+            else -> m.ifBlank { e.javaClass.simpleName }
+        }
     }
 
     suspend fun route(from: District, to: District): List<Corridor> = withContext(Dispatchers.IO) {

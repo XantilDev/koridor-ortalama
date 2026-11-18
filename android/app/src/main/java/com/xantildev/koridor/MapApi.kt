@@ -52,28 +52,46 @@ object MapChoice {
 }
 
 /** Konum değişiminden gidiş yönü (derece, kuzey = 0). 12 m'den kısa hareketler ve 5 km/s altı yok sayılır. */
+/** GPS alıcısının verdiği son gidiş yönü (derece) ve zamanı. */
+object GpsHeading {
+    @Volatile var deg: Float? = null
+        private set
+    @Volatile var at = 0L
+        private set
+    fun set(d: Float) { deg = d; at = System.currentTimeMillis() }
+    fun fresh(): Float? = if (System.currentTimeMillis() - at < 3000) deg else null
+}
+
+/**
+ * Haritanın döneceği gidiş yönü. Önce GPS'in kendi yönü; yoksa 20 m'lik hareketten.
+ * 10 km/s altında (dururken GPS noktaları oynar) yön değiştirilmez; 8°'den küçük değişimler yok sayılır.
+ */
 class HeadingTracker {
     private var prev: LatLng? = null
     var deg: Float? = null
         private set
 
     fun feed(p: LatLng, speedKmh: Int?): Float? {
+        val slow = (speedKmh ?: 0) < 10
         val q = prev
-        if (q == null) { prev = p; return deg }
+        var b: Float? = null
+        val gps = GpsHeading.fresh()
+        if (!slow && gps != null) b = gps
+        if (q == null) { prev = p; if (b != null) deg = b; return deg }
         val d = Geo.dist(q, p)
-        if (d >= 12) {
-            if ((speedKmh ?: 99) >= 5) {
-                val b = bearing(q, p)
-                val old = deg
-                deg = if (old == null) b else {
-                    var diff = b - old
-                    while (diff > 180) diff -= 360
-                    while (diff < -180) diff += 360
-                    ((old + diff * 0.6f) % 360 + 360) % 360
-                }
-            }
+        if (d >= 20) {
+            if (b == null && !slow) b = bearing(q, p)
             prev = p
         } else if (d > 300) prev = p
+        if (b != null) {
+            val old = deg
+            deg = if (old == null) b else {
+                var diff = b - old
+                while (diff > 180) diff -= 360
+                while (diff < -180) diff += 360
+                if (kotlin.math.abs(diff) < 8f) old else ((old + diff * 0.6f) % 360 + 360) % 360
+            }
+        }
         return deg
     }
 
