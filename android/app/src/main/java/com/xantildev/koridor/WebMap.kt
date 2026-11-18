@@ -26,7 +26,7 @@ class WebMapHolder(ctx: Context) : LiveMapView {
 
     private val main = Handler(Looper.getMainLooper())
     private val density = ctx.resources.displayMetrics.density
-    private val heading = HeadingTracker()
+    private val heading = HeadingTracker("web")
     private var ready = false
     private var last: Triple<UiState, Int, Boolean>? = null
 
@@ -48,8 +48,8 @@ class WebMapHolder(ctx: Context) : LiveMapView {
         @JavascriptInterface fun alt(i: Int) { main.post { RouteSession.selectAlt(i) } }
         @JavascriptInterface fun ready() { main.post { ready = true; reset(); last?.let { (s, v, f) -> update(s, v, f) }; pinAt?.let { setPin(it) } } }
         @JavascriptInterface fun press(lat: Double, lon: Double) { main.post { onLongPress(LatLng(lat, lon)) } }
-        @JavascriptInterface fun lost() { main.post { load() } }
-        @JavascriptInterface fun fail() { main.post { MapChoice.webFailed = true } }
+        @JavascriptInterface fun lost() { main.post { TLog.w("harita", "Web harita çizim bağlamı kayboldu, yeniden yükleniyor"); load() } }
+        @JavascriptInterface fun fail() { main.post { TLog.e("harita", "Web harita yüklenemedi, OpenStreetMap'e geçiliyor"); MapChoice.webFailed = true } }
     }
 
     init {
@@ -60,7 +60,7 @@ class WebMapHolder(ctx: Context) : LiveMapView {
         wv.webViewClient = object : WebViewClient() {
             // Arka planda haritanın çizim süreci kapatıldıysa uygulama çökmesin: harita baştan kurulur
             override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
-                main.post { MapChoice.webGen++ }
+                main.post { TLog.w("harita", "Web harita çizim süreci kapandı (${if (detail?.didCrash() == true) "çöktü" else "sistem kapattı"}), yeniden kuruluyor"); MapChoice.webGen++ }
                 return true
             }
         }
@@ -81,13 +81,13 @@ class WebMapHolder(ctx: Context) : LiveMapView {
      */
     override fun foreground(awayMs: Long) {
         wv.onResume(); wv.resumeTimers()
-        if (awayMs > 45_000 || !ready) { load(); return }
+        if (awayMs > 45_000 || !ready) { TLog.i("harita", "Web harita yeniden yüklendi (arka planda ${awayMs / 1000} sn${if (!ready) ", hazır değildi" else ""})"); load(); return }
         var answered = false
         wv.evaluateJavascript("(function(){try{google.maps.event.trigger(map,'resize');return 'ok'}catch(e){return 'err'}})()") { r ->
             answered = true
             if (r?.contains("ok") != true) load() else { reset(); last?.let { (s, v, f) -> update(s, v, f) } }
         }
-        main.postDelayed({ if (!answered) load() }, 3000)
+        main.postDelayed({ if (!answered) { TLog.w("harita", "Web harita 3 sn cevap vermedi, yeniden yükleniyor"); load() } }, 3000)
     }
 
     private fun reset() {

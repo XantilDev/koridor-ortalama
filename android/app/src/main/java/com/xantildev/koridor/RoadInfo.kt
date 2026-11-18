@@ -151,6 +151,7 @@ object RadarMap {
         val wait = when (fails) { 1 -> 2; 2 -> 5; else -> 10 } * 60_000L
         dueAt = System.currentTimeMillis() + wait
         status = "EGM'ye ulaşılamadı: $why · sonraki deneme ${clock(dueAt)}"
+        TLog.e("egm", "EGM sorgusu başarısız ($fails. kez): $why", org.json.JSONObject().put("yontem", TrafikApi.lastMethod))
     }
 
     /**
@@ -170,15 +171,17 @@ object RadarMap {
     private suspend fun build(inf: RouteSession.Info, here: LatLng?, seed: TrafikApi.Enforcement?) {
         val total = inf.totalM
         lastTryAt = System.currentTimeMillis()
-        val to = runCatching { DistrictFinder.nearest(inf.target.ll, inf.target.province) }.getOrNull()
-        if (to == null) { failed("hedefin ilçesi bulunamadı"); return }
+        val toR = runCatching { DistrictFinder.nearest(inf.target.ll, inf.target.province) }
+        val to = toR.getOrNull()
+        if (to == null) { failed("hedefin ilçesi bulunamadı: ${toR.exceptionOrNull()?.message}"); return }
         // 1) Bulunduğun yerden hedefe güncel toplam
         val now: TrafikApi.Enforcement
         if (seed != null && (seed.radar != null || seed.other != null)) now = seed
         else {
             status = "EGM sorgulanıyor…"
-            val fromNow = runCatching { DistrictFinder.nearest(here ?: inf.start, null) }.getOrNull()
-            if (fromNow == null) { failed("bulunduğun ilçe bulunamadı"); return }
+            val fromR = runCatching { DistrictFinder.nearest(here ?: inf.start, null) }
+            val fromNow = fromR.getOrNull()
+            if (fromNow == null) { failed("bulunduğun ilçe bulunamadı: ${fromR.exceptionOrNull()?.message}"); return }
             val (e, err) = TrafikApi.counts(fromNow, to)
             if (e == null || err != null) { failed(err ?: "bilinmeyen hata"); return }
             now = e
@@ -187,6 +190,8 @@ object RadarMap {
         remainingNow = now
         updatedAt = System.currentTimeMillis()
         fails = 0; lastError = null; status = null
+        TLog.i("egm", "EGM: ${now.text ?: "sayı yok"}", org.json.JSONObject().put("yontem", TrafikApi.lastMethod)
+            .put("radar", now.radar).put("kontrol", now.other).put("ilk_sonuc", seed != null))
         // 2) İlçe arası bölümler (rota en az iki ilçeden geçiyorsa)
         val me = here?.let { inf.project(it).first } ?: 0.0
         val step = maxOf(12_000.0, (total - me) / 12)
@@ -197,7 +202,6 @@ object RadarMap {
             val d = runCatching { DistrictFinder.nearest(pt, null) }.getOrNull()
             if (d != null && samples.lastOrNull()?.second?.id != d.id) samples.add(s to d)
             s += step
-            delay(400)   // ters coğrafi kodlama servisini yormamak için
         }
         if (samples.size < 2) { status = "Rota tek ilçede: bölüm ayrımı yok"; return }
         val counts = ArrayList<Triple<Double, String, TrafikApi.Enforcement?>>()
@@ -210,6 +214,7 @@ object RadarMap {
                 val (r, err) = TrafikApi.counts(d, to)
                 if (r == null || err != null) {
                     lastError = err
+                    TLog.w("egm", "Bölüm hesabı yarım kaldı: $err", org.json.JSONObject().put("ilce", d.name).put("sira", i))
                     status = "Bölüm hesabı yarım kaldı: ${err ?: "hata"} · sonraki deneme ${clock(System.currentTimeMillis() + 5 * 60_000L)}"
                     dueAt = System.currentTimeMillis() + 5 * 60_000L
                     return
@@ -235,6 +240,8 @@ object RadarMap {
         if (RouteSession.info?.target != inf.target) return
         segs = out
         updatedAt = System.currentTimeMillis()
+        TLog.i("egm", "Bölümler: ${samples.size} ilçe, ${out.size} radar/kontrol bölümü", org.json.JSONObject()
+            .put("ilceler", org.json.JSONArray(samples.map { it.second.name })))
     }
 
     /** Teşhis kutusu için tek satır. */

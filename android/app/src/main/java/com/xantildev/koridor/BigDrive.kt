@@ -571,6 +571,8 @@ private fun HomeOverlay(s: UiState, wide: Boolean, next: Corridor?, voice: () ->
                         Text("${etaText(info.durationS)} · ${Geo.fmtKm(info.totalM)} · " +
                             (if (info.corridors.isEmpty()) "EDS yok" else "${info.corridors.size} EDS"),
                             color = BMuted, fontSize = 15.sp, maxLines = 1)
+                        Text("Başlangıç: ${info.startLabel}" + (Places.lastFixSource?.let { " · $it" } ?: ""),
+                            color = BMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     RoundIcon("✕", "Vazgeç") { rs.clear() }
                 }
@@ -727,17 +729,35 @@ fun RadarSegList() {
 @Composable
 fun DiagBox() {
     val inf = RouteSession.info
+    var sendMsg by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    var sending by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(12.dp)).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text("🔧 Teşhis", color = BFg, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        if (inf == null) { Text("Rota yok.", color = BMuted, fontSize = 12.sp); return@Column }
-        val tr = Traffic.of(inf.line)
-        Text("Rota: ${RouteSession.routeSource ?: "—"}", color = BMuted, fontSize = 12.sp)
-        Text("Trafik: " + (if (tr.isEmpty()) "yavaş/sıkışık bölüm yok" else "${tr.count { it.level == 1 }} yavaş, ${tr.count { it.level >= 2 }} sıkışık bölüm") +
-            (GoogleApi.trafficError?.let { " · trafikli istek hatası: $it" } ?: ""), color = BMuted, fontSize = 12.sp)
-        Text("EGM: " + RadarMap.diag() + (TrafikApi.lastMethod?.let { " · yöntem: $it" } ?: ""), color = if (RadarMap.lastError != null) BWarn else BMuted, fontSize = 12.sp)
+        if (inf == null) Text("Rota yok.", color = BMuted, fontSize = 12.sp)
+        else {
+            val tr = Traffic.of(inf.line)
+            Text("Rota: ${RouteSession.routeSource ?: "—"}", color = BMuted, fontSize = 12.sp)
+            Text("Başlangıç: ${inf.startLabel} · ${Places.lastFixSource ?: "—"}", color = BMuted, fontSize = 12.sp)
+            Text("Trafik: " + (if (tr.isEmpty()) "yavaş/sıkışık bölüm yok" else "${tr.count { it.level == 1 }} yavaş, ${tr.count { it.level >= 2 }} sıkışık bölüm") +
+                (GoogleApi.trafficError?.let { " · trafikli istek hatası: $it" } ?: ""), color = BMuted, fontSize = 12.sp)
+            Text("EGM: " + RadarMap.diag() + (TrafikApi.lastMethod?.let { " · yöntem: $it" } ?: ""), color = if (RadarMap.lastError != null) BWarn else BMuted, fontSize = 12.sp)
+        }
+        Text("İlçe listesi: ${DistrictFinder.source}", color = BMuted, fontSize = 12.sp)
         if (MapDiag.text.isNotBlank()) Text(MapDiag.text, color = BMuted, fontSize = 12.sp)
+        if (Firma.enabled) {
+            Text("Kayıtlar: " + (if (!AppSettings.techLog) "kapalı (Ayarlar)" else
+                "bekleyen ${TLog.pending}" + (if (TLog.lastSentAt > 0) " · son gönderim ${java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr", "TR")).format(java.util.Date(TLog.lastSentAt))}" else "") +
+                    (TLog.lastError?.let { " · hata: $it" } ?: "")),
+                color = if (TLog.lastError != null) BWarn else BMuted, fontSize = 12.sp)
+            if (AppSettings.techLog) Button(
+                onClick = { sending = true; sendMsg = "Gönderiliyor…"; TLog.sendNow(null) { sendMsg = it; sending = false } },
+                enabled = !sending, modifier = Modifier.fillMaxWidth().height(44.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BBlue, contentColor = Color.White)
+            ) { Text("📤 Logları şimdi gönder", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+            sendMsg?.let { Text(it, color = BFg, fontSize = 12.sp) }
+        }
     }
 }

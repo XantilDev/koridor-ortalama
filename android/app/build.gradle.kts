@@ -53,6 +53,8 @@ android {
         compose = true
         buildConfig = true
     }
+    // Birim testleri: Android sınıfları çağrılırsa hata yerine boş değer dönsün (yalnız saf mantık test edilir)
+    testOptions { unitTests.isReturnDefaultValues = true }
 
     // İki dağıtım: "firma" (APK, çalışanlar: Şahsi/İş, konum paylaşımı, personel bağlantısı)
     // ve "store" (Play Store: firma özellikleri ve sunucuya veri gönderimi hiç yok).
@@ -70,6 +72,8 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20231013")
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")

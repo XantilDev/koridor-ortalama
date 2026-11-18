@@ -364,6 +364,7 @@ object Engine {
         lastEndAt = null
         startTracking("gps")
         RouteSession.onTripBegan()
+        TLog.i("surus", "Sürüş başladı", org.json.JSONObject().put("hedef", RouteSession.info?.target?.name).put("is", Firma.isWork))
         say("Sürüş başladı.")
     }
 
@@ -373,6 +374,8 @@ object Engine {
             "gps" -> {
                 val reached = arrivedFor != null && arrivedFor == RouteSession.info?.target?.name
                 lastEndAt = prev?.ll
+                TLog.i("surus", "Sürüş bitti" + if (reached) " (hedefe varıldı)" else "", org.json.JSONObject()
+                    .put("km", Math.round(trip.dist / 100) / 10.0))
                 saveTrip()
                 // Hedefe varılıp bitirildiyse hedef temizlenir; park ederken yeni sürüş/yeni "vardın" sorusu çıkmaz
                 if (reached) RouteSession.clear()
@@ -436,6 +439,7 @@ object Engine {
             return
         }
         if (mode == "bekle") {
+            RouteSession.onStandbyFix(f.ll)
             standbyFix(f)
             return
         }

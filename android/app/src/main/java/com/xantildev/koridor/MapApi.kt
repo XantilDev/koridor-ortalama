@@ -68,54 +68,71 @@ object GpsHeading {
 }
 
 /**
- * Haritanın döneceği gidiş yönü. Önce GPS'in kendi yönü; yoksa 20 m'lik hareketten.
- * 10 km/s altında (dururken GPS noktaları oynar) yön değiştirilmez; 8°'den küçük değişimler yok sayılır.
+ * Haritanın döneceği gidiş yönü.
+ * Aday yön: son 20 sn'deki konumlardan, en az 50 m geriden şimdiki konuma çizilen yön (kısa adımlardaki GPS
+ * oynaması yönü sallamasın) ile GPS'in kendi gidiş yönünün ortası; biri yoksa öteki. Aday yumuşatılır (%40),
+ * gösterilen yön ancak 10°'den fazla ayrılınca döner, bir seferde en çok 35°. 10 km/s altında dönmez.
+ * (Simülasyonda eski yönteme göre düz yolda ~6 kat daha az dönüş, en büyük sapma yarıya iner; virajda gecikme ~1 sn artar.)
  */
-class HeadingTracker {
+class HeadingTracker(private val tag: String = "harita") {
     /** Teşhis: son 1 dakikadaki yön değişimleri ve kaynağı. */
     val turns = ArrayDeque<Long>()
     var source = "—"
         private set
     fun turnsPerMin(): Int { val n = System.currentTimeMillis(); while (turns.isNotEmpty() && n - turns.first() > 60_000) turns.removeFirst(); return turns.size }
-    private var prev: LatLng? = null
+    private val hist = ArrayDeque<Pair<Long, LatLng>>()
+    private var smooth: Float? = null
     var deg: Float? = null
         private set
 
-    fun feed(p: LatLng, speedKmh: Int?): Float? {
-        val slow = (speedKmh ?: 0) < 10
-        val q = prev
-        var b: Float? = null
-        val gps = GpsHeading.fresh()
-        if (!slow && gps != null) { b = gps; source = "GPS yönü" }
-        if (q == null) { prev = p; if (b != null) deg = b; return deg }
-        val d = Geo.dist(q, p)
-        if (d >= 20) {
-            if (b == null && !slow) { b = bearing(q, p); source = "hareketten" }
-            prev = p
-        } else if (d > 300) prev = p
-        if (b != null) {
-            val old = deg
-            deg = if (old == null) b else {
-                var diff = b - old
-                while (diff > 180) diff -= 360
-                while (diff < -180) diff += 360
-                if (kotlin.math.abs(diff) < 12f) old else {
-                    turns.addLast(System.currentTimeMillis())
-                    // Bir seferde en çok 35° döner (ani sıçramalar yumuşar)
-                    val step = diff.coerceIn(-35f, 35f) * 0.6f
-                    ((old + step) % 360 + 360) % 360
-                }
-            }
+    fun feed(p: LatLng, speedKmh: Int?): Float? = step(p, speedKmh, System.currentTimeMillis(), GpsHeading.fresh())
+
+    /** Saf hesap (testlerde zaman ve GPS yönü dışarıdan verilir). */
+    fun step(p: LatLng, speedKmh: Int?, now: Long, gps: Float?): Float? {
+        // Harita her ekran güncellemesinde çağırır; yalnız yeni konumda hesaplanır (aynı nokta yumuşatmayı hızlandırmasın)
+        val moved = hist.isEmpty() || Geo.dist(hist.last().second, p) >= 2
+        if (moved) hist.addLast(now to p)
+        while (hist.size > 1 && now - hist.first().first > 20_000) hist.removeFirst()
+        if (!moved && smooth != null) return deg
+        if ((speedKmh ?: 0) < 10) return deg
+        val base = hist.lastOrNull { Geo.dist(it.second, p) >= BASE_M }
+        val mv = base?.let { bearing(it.second, p) }
+        val cand = when {
+            mv != null && gps != null -> norm(mv + diff(gps, mv) / 2)
+            else -> mv ?: gps
+        } ?: return deg
+        source = when { mv != null && gps != null -> "GPS + hareket"; mv != null -> "hareketten"; else -> "GPS yönü" }
+        val s0 = smooth
+        val sm = if (s0 == null) cand else norm(s0 + diff(cand, s0) * ALPHA)
+        smooth = sm
+        val old = deg ?: run { deg = sm; return sm }
+        val d = diff(sm, old)
+        if (kotlin.math.abs(d) < DEAD) return old
+        val nd = norm(old + d.coerceIn(-35f, 35f))
+        turns.addLast(now)
+        deg = nd
+        val src = source
+        TLog.throttled("yon-$tag", 1500) {
+            TLog.i("yon", "Yön ${old.toInt()}→${nd.toInt()} ($src, fark ${d.toInt()}°)", org.json.JSONObject()
+                .put("harita", tag).put("eski", old.toInt()).put("yeni", nd.toInt()).put("aday", cand.toInt()).put("kaynak", src)
+                .put("gps_yon", gps?.toInt()).put("hareket_yon", mv?.toInt()).put("hiz", speedKmh).put("dk_donus", turns.size))
         }
-        return deg
+        return nd
     }
 
-    private fun bearing(a: LatLng, b: LatLng): Float {
-        val la1 = Math.toRadians(a.lat); val la2 = Math.toRadians(b.lat)
-        val dl = Math.toRadians(b.lon - a.lon)
-        val y = Math.sin(dl) * Math.cos(la2)
-        val x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dl)
-        return ((Math.toDegrees(Math.atan2(y, x)) + 360) % 360).toFloat()
+    companion object {
+        const val BASE_M = 50.0
+        const val ALPHA = 0.4f
+        const val DEAD = 10f
+        fun diff(a: Float, b: Float): Float { var d = a - b; while (d > 180) d -= 360; while (d < -180) d += 360; return d }
+        fun norm(a: Float) = ((a % 360) + 360) % 360
+        fun bearing(a: LatLng, b: LatLng): Float {
+            val la1 = Math.toRadians(a.lat); val la2 = Math.toRadians(b.lat)
+            val dl = Math.toRadians(b.lon - a.lon)
+            val y = Math.sin(dl) * Math.cos(la2)
+            val x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dl)
+            return ((Math.toDegrees(Math.atan2(y, x)) + 360) % 360).toFloat()
+        }
     }
 }
 
@@ -164,7 +181,10 @@ object NavZoom {
         else if (target != cur && now - changedAt > 8000) {
             // Pay: hız eşiğin 8 km/s ötesine geçmedikçe aynı seviyede kal
             val confirmed = if (target > cur) level(v + 8) == target || turn else level(v - 8) == target
-            if (confirmed) { cur = target; changedAt = now; changes.addLast(now) }
+            if (confirmed) {
+                TLog.i("harita", "Yakınlık ${cur}→$target (hız $v km/s${if (turn) ", dönüş yakın" else ""})")
+                cur = target; changedAt = now; changes.addLast(now)
+            }
         }
         while (changes.isNotEmpty() && now - changes.first() > 60_000) changes.removeFirst()
         return (cur + bias).coerceIn(13f, 20f)

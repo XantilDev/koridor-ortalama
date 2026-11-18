@@ -125,12 +125,14 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         Overlay.appVisible = true
+        AppState.set(true)
         Overlay.update(this, Engine.state.value)
     }
 
     override fun onStop() {
         super.onStop()
         Overlay.appVisible = false
+        AppState.set(false)
         Overlay.update(this, Engine.state.value)
     }
 
@@ -311,7 +313,7 @@ private fun DriveTab(s: UiState, ver: Int, onGoRoute: () -> Unit) {
         SettingsCard()
         FirmaCard()
         ExitInfo.last?.let { Text(it, color = Muted, fontSize = 12.sp) }
-        if (RouteSession.info != null) DiagBox()
+        if (RouteSession.info != null || Firma.enabled) DiagBox()
         TrafikApi.lastEnforcement?.let { e ->
             Text("Son rota yanıtındaki alanlar: ${e.fields.ifBlank { "—" }}", color = Muted, fontSize = 12.sp)
         }

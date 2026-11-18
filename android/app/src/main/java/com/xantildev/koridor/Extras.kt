@@ -332,6 +332,11 @@ fun SettingsCard() {
         Text("Gece modu (ekranı karartır)", color = XFg, fontWeight = FontWeight.SemiBold)
         Segments(listOf("oto" to "Otomatik", "acik" to "Açık", "kapali" to "Kapalı"), AppSettings.night, 46, 15) { AppSettings.chooseNight(it) }
         Text("Otomatik: 20:00–07:00 arası.", color = XMuted, fontSize = 12.sp)
+        if (Firma.enabled) {
+            Text("Teknik kayıtlar (hata ayıklama)", color = XFg, fontWeight = FontWeight.SemiBold)
+            Segments(listOf("acik" to "Açık", "kapali" to "Kapalı"), if (AppSettings.techLog) "acik" else "kapali", 46, 15) { AppSettings.chooseTechLog(it == "acik") }
+            Text("Hataları bulmak için uygulamanın olayları (konum dahil) firmaya gönderilir; 30 gün saklanır.", color = XMuted, fontSize = 12.sp)
+        }
         VersionRow()
     }
 }
@@ -573,6 +578,7 @@ fun QuickSettings(onClose: () -> Unit, onAll: () -> Unit) {
                 AppSettings.chooseOverlay(it == "acik")
                 if (it == "acik" && !Overlay.allowed(ctx)) Power.requestOverlay(ctx)
             }
+            if (Firma.enabled) DiagBox()
             VersionRow()
             OutlinedButton(onClick = onAll, modifier = Modifier.fillMaxWidth()) { Text("Tüm ayarlar · garaj · firma · yolculuklar", color = XFg) }
         }

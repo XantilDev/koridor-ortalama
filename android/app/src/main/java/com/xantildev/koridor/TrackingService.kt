@@ -84,14 +84,34 @@ class TrackingService : Service() {
         }
     }
 
+    /** Sürüşte ham konumlar 10'arlı paketler hâlinde loga yazılır (sorunlu bölümü sonradan aynen oynatmak için). */
+    private val fixBuf = org.json.JSONArray()
+    private fun fixLog(loc: Location) {
+        if (Engine.state.value.mode != "gps") { if (fixBuf.length() > 0) flushFixes(); return }
+        fixBuf.put(org.json.JSONArray().put(loc.time).put(Math.round(loc.latitude * 1e6) / 1e6).put(Math.round(loc.longitude * 1e6) / 1e6)
+            .put(if (loc.hasSpeed()) Math.round(loc.speed * 10) / 10.0 else -1).put(if (loc.hasBearing()) loc.bearing.toInt() else -1)
+            .put(if (loc.hasAccuracy()) loc.accuracy.toInt() else -1).put(if (loc.provider == LocationManager.GPS_PROVIDER) "g" else "a"))
+        if (fixBuf.length() >= 10) flushFixes()
+    }
+    private fun flushFixes() {
+        TLog.i("iz", "${fixBuf.length()} konum", org.json.JSONObject().put("n", org.json.JSONArray(fixBuf.toString()))
+            .put("alan", "t,lat,lon,hiz_ms,yon,dogruluk,kaynak"))
+        while (fixBuf.length() > 0) fixBuf.remove(0)
+    }
+
     private val listener = object : LocationListener {
         override fun onLocationChanged(loc: Location) {
             // GPS varken ağ konumu yalnız GPS sustuğunda kullanılır
             if (loc.provider != LocationManager.GPS_PROVIDER && System.currentTimeMillis() - lastFixWall < 5000) return
+            val gap = System.currentTimeMillis() - lastFixWall
+            if (lastFixWall > 0 && gap > 20_000) TLog.w("konum", "Konum ${gap / 1000} sn sonra geri geldi (${loc.provider})")
             lastFixWall = System.currentTimeMillis()
+            fixLog(loc)
             // GPS'in kendi gidiş yönü (hareketten hesaplanandan çok daha kararlı); yalnız 10 km/s üstünde
             if (loc.provider == LocationManager.GPS_PROVIDER && loc.hasBearing() && loc.hasSpeed() && loc.speed > 2.8f)
                 GpsHeading.set(loc.bearing)
+            if (loc.provider == LocationManager.GPS_PROVIDER)
+                Places.noteGps(LatLng(loc.latitude, loc.longitude), if (loc.hasAccuracy()) loc.accuracy else null, System.currentTimeMillis())
             Engine.onFix(
                 Fix(
                     loc.latitude, loc.longitude, loc.time,
@@ -155,6 +175,7 @@ class TrackingService : Service() {
                     kotlinx.coroutines.delay(10_000)
                     val quiet = System.currentTimeMillis() - lastFixWall
                     if (quiet > 20_000) {
+                        TLog.throttled("konum-yok", 60_000) { TLog.w("konum", "Konum alınamıyor (${quiet / 1000} sn), dinleyici yeniden kuruluyor") }
                         if (System.currentTimeMillis() - lastRearm > 30_000) rearm()
                         Engine.gpsStatus("Konum alınamıyor (${quiet / 1000} sn) — yeniden deneniyor")
                     }

@@ -81,7 +81,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
     private var pinAt: LatLng? = null
     override var navMode = false
     override var rightInsetPx = 0
-    private val heading = HeadingTracker()
+    private val heading = HeadingTracker("google")
     private var arrowOn = false
     private var padKey = ""
     private var lastCam: GLatLng? = null
@@ -179,6 +179,8 @@ class GMapHolder(ctx: Context) : LiveMapView {
             val navNow = navMode && AppSettings.headingUp && s.driving
             if (navNow) navSince = System.currentTimeMillis()
             val nav = navNow || (navLatched && System.currentTimeMillis() - navSince < 5000)
+            if (nav != navLatched) TLog.i("harita", if (nav) "Navigasyon görünümü açıldı" else "Kuzey yukarı görünüme geçildi",
+                org.json.JSONObject().put("harita", "google").put("surus", s.driving).put("yon_yukari", AppSettings.headingUp))
             navLatched = nav
             MapDiag.text = "Harita: yön ${heading.source} · son 1 dk ${heading.turnsPerMin()} dönüş, ${NavZoom.changes.size} yakınlık değişimi · ${if (nav) "navigasyon" else "kuzey yukarı"}"
             val y = you ?: m.addMarker(MarkerOptions().position(gp).icon(dot(0xFFF2B632.toInt(), 0xFFFFFFFF.toInt(), 18)).anchor(0.5f, 0.5f).zIndex(5f)).also { you = it }

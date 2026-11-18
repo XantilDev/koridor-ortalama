@@ -100,7 +100,7 @@ class MapHolder(ctx: Context) : LiveMapView {
     private var hasFix = false
     override var navMode = false
     override var rightInsetPx = 0
-    private val heading = HeadingTracker()
+    private val heading = HeadingTracker("osm")
     override var onLongPress: (LatLng) -> Unit = {}
     private val pin = Marker(map).apply { setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM) }
 

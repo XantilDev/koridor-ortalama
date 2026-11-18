@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, deneme]
     paths: ['android/**', '.github/workflows/android.yml']
   workflow_dispatch:
 
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: android-apk
+  group: android-apk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -28,6 +28,23 @@ jobs:
         with:
           gradle-version: '8.13'
 
+      - name: EGM il/ilçe listesini uygulamaya koy (Supabase'den; alınamazsa uygulama ilk açılışta indirir)
+        run: |
+          mkdir -p android/app/src/main/assets
+          curl -sS -m 60 -X POST "https://advcgkmlfrnzwqbtplba.supabase.co/rest/v1/rpc/egm_ilceler" \
+            -H "apikey: sb_publishable_wur9wh2sFeQ7Tsb2r9qdvw_IQFQcxx6" -H "Content-Type: application/json" -d '{}' \
+            -o android/app/src/main/assets/egm_ilce.json || true
+          python3 -c "import json;d=json.load(open('android/app/src/main/assets/egm_ilce.json'));n=len(d['ilceler']);print(n,'ilçe');assert n>500" \
+            || rm -f android/app/src/main/assets/egm_ilce.json
+
+      - name: Testler (biri bozulursa APK oluşmaz)
+        working-directory: android
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          set -o pipefail
+          gradle :app:testFirmaDebugUnitTest --no-daemon --stacktrace 2>&1 | tee test.log
+
       - name: APK derle
         working-directory: android
         env:
@@ -40,13 +57,29 @@ jobs:
         if: failure()
         run: |
           mkdir -p out && cp android/build.log out/ || true
+          cp android/test.log out/ || true
+          cp -r android/app/build/reports/tests out/test-raporu 2>/dev/null || true
           cd out
           git init -q -b derleme-hatasi
           git config user.name github-actions; git config user.email actions@github.com
           git add -A; git commit -q -m "derleme hatası" || true
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" derleme-hatasi
 
+      # Deneme dalı: herkese giden "son-surum"a dokunmaz; uygulamalar bunu güncelleme olarak görmez
+      - name: Deneme APK'sı (yalnız elle kurulum)
+        if: github.ref == 'refs/heads/deneme'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/firma/debug/app-firma-debug.apk KoridorOrtalama-deneme.apk
+          gh release delete deneme --yes --cleanup-tag 2>/dev/null || true
+          gh release create deneme KoridorOrtalama-deneme.apk --target "${{ github.sha }}" \
+            --title "Koridor Ortalama · DENEME #${{ github.run_number }} (yayında değil)" \
+            --notes "Sadece deneme içindir; telefonlara güncelleme olarak gitmez. $(git log -1 --format=%s | head -c 300)" \
+            --prerelease
+
       - name: APK'yı yayınla
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

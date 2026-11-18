@@ -296,6 +296,35 @@ object RouteSession {
         }
     }
 
+    /**
+     * Önizlemedeyken (araç duruyor) gelen GPS konumu: rota başı 1 km'den fazla uzaktaysa
+     * (başlangıç kaba ağ konumundan alınmışsa) rota bir kez kendiliğinden yeniden hesaplanır.
+     */
+    private var fixedFor: Info? = null
+    fun onStandbyFix(p: LatLng) {
+        val inf = info ?: return
+        if (!previewing || busy || fixedFor === inf) return
+        val off = Geo.dist(p, inf.start)
+        if (off < 1000) return
+        fixedFor = inf
+        val c = ctxApp ?: return
+        TLog.w("rota", "Rota başı GPS konumundan ${(off / 1000).toInt()} km uzak; yeniden hesaplanıyor",
+            org.json.JSONObject().put("kaynak", Places.lastFixSource ?: "?"))
+        val target = inf.target
+        info = null
+        go(c, target)
+    }
+
+    /** Hedef adı loglarda (kısaltılmış). */
+    private fun logTarget(p: Places.Place): String = p.name.take(80)
+
+    /** Teşhis ve loglar için rota özeti. */
+    fun diagRoute(): String {
+        val inf = info ?: return "rota yok"
+        return "${inf.startLabel} → ${inf.targetLabel} · ${Geo.fmtKm(inf.totalM)} · ${(inf.durationS / 60).toInt()} dk · " +
+            "${routeSource ?: "—"} · başlangıç ${Places.lastFixSource ?: "—"} · ${inf.corridors.size} koridor"
+    }
+
     fun onFix(p: LatLng, kmh: Int?) {
         val inf = info ?: return
         Directions.onFix(p, kmh, inf)
@@ -366,6 +395,8 @@ object RouteSession {
             rerouting = false
             offSince = 0
             retryText = null
+            if (road == null) TLog.w("rota", "Rotadan çıkıldı, yeni rota alınamadı")
+            else TLog.i("rota", "Rotadan çıkıldı, yeni rota: ${Geo.fmtKm(road.second)}", org.json.JSONObject().put("kacinci", reroutes + 1))
             if (road == null || info?.target != p) return@launch
             reroutes++
             alts = emptyList(); altIndex = 0
@@ -425,6 +456,7 @@ object RouteSession {
         scope.launch {
             val here = Places.freshLocation(ctx)
             if (here == null) {
+                TLog.e("rota", "Rota başlatılamadı: konum alınamadı", org.json.JSONObject().put("hedef", logTarget(p)))
                 msg = "Şu anki konumun alınamadı. Telefonun konumu açık mı? Sürüş ekranında “GPS ile başlat”a basıp konum gelince tekrar dene."
                 msgBad = true
                 busy = false
@@ -436,6 +468,7 @@ object RouteSession {
                 if (GoogleApi.enabled) GoogleApi.routes(here, p.ll, true).also { routeSource = "Google (trafikli)" }
                 else osrmAll(here, p.ll, true).also { routeSource = "OpenStreetMap" }
             } catch (e: Exception) {
+                TLog.w("rota", "Google rota hatası, OpenStreetMap'e geçildi: ${e.message?.take(200)}")
                 routeSource = "OpenStreetMap · Google hata verdi: ${e.message?.take(160)}"
                 try { osrmAll(here, p.ll, true) } catch (_: Exception) { emptyList() }
             }
@@ -458,6 +491,7 @@ object RouteSession {
             } catch (e: Exception) {
                 // Rotada daha önce kaydedilmiş koridorlar varsa onlar hemen kullanılır
                 pool = CorridorStore.all()
+                TLog.e("egm", "Koridor sorgusu başarısız: ${TrafikApi.why(e)}")
                 err = "Koridor bilgisi şu an alınamadı (${e.message ?: "bağlantı hatası"}). Sürüş boyunca arada tekrar denenecek."
             }
             val altList = roads.map { (ln, d, t) -> Alt(ln, d, t, pool.filter { onLine(it, ln) }) }
@@ -471,6 +505,11 @@ object RouteSession {
             val total = road?.second ?: (Geo.dist(here, p.ll) * 1.25)
             val dur = road?.third ?: (total / (80 / 3.6))
             info = Info(p, corridors, line, total, dur, here, startLabel, targetLabel, if (road != null) "yol" else "düz", err != null)
+            TLog.i("rota", if (road != null) "Rota hazır" else "Rota çizilemedi (düz çizgi)", org.json.JSONObject()
+                .put("hedef", logTarget(p)).put("km", Math.round(total / 100) / 10.0).put("dk", (dur / 60).toInt())
+                .put("kaynak", routeSource).put("baslangic", Places.lastFixSource).put("koridor", corridors.size)
+                .put("secenek", altList.size).put("egm", enforcement?.text).put("hata", err)
+                .put("bas_lat", here.lat).put("bas_lon", here.lon).put("hedef_lat", p.lat).put("hedef_lon", p.lon))
             info?.let { RadarMap.refresh(it, here, enforcement) }
             if (err != null) retryCorridors(p, road?.first)
             msg = listOfNotNull(Places.lastFixNote, err).joinToString("\n").ifBlank { null }

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.location.LocationManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -134,31 +135,68 @@ object Places {
 
     /** Konumun ne kadar güncel olduğu (rota ekranında gösterilir). */
     var lastFixNote: String? = null
+    /** Son rota başlangıcının nereden alındığı, ör. "GPS ±12 m" (önizlemede ve loglarda). */
+    var lastFixSource: String? = null
+
+    /** Son güvenilir GPS konumu (ağ konumunun saçma olup olmadığını anlamak için). */
+    @Volatile var trustedFix: LocFix? = null
+        private set
+    fun noteGps(p: LatLng, acc: Float?, t: Long) {
+        if (acc != null && acc > 100f) return
+        val prev = trustedFix
+        trustedFix = LocFix(p, acc, t, true)
+        if (prev == null || t - prev.t > 60_000) app?.getSharedPreferences("rota", Context.MODE_PRIVATE)?.edit()
+            ?.putString("guvenilir", "${p.lat},${p.lon},${acc ?: 0f},$t")?.apply()
+    }
+    private fun loadTrusted(c: Context) {
+        if (trustedFix != null) return
+        val s = c.getSharedPreferences("rota", Context.MODE_PRIVATE).getString("guvenilir", null) ?: return
+        runCatching { val q = s.split(","); trustedFix = LocFix(LatLng(q[0].toDouble(), q[1].toDouble()), q[2].toFloat(), q[3].toLong(), true) }
+    }
 
     /**
-     * Taze konum: takip açıksa son GPS noktası; değilse GPS ve ağ konumu aynı anda istenir,
-     * ilk gelen kullanılır (en fazla 10 sn). Gelmezse son 24 saatteki kayıtlı konum, uyarıyla.
+     * Taze konum: takip açıksa son GPS noktası; değilse GPS ve ağ konumu aynı anda istenir.
+     * GPS (±100 m içinde) gelince hemen kullanılır. Ağ konumu yalnız doğruluğu ±1,5 km içindeyse ve
+     * son güvenilir GPS konumuyla çelişmiyorsa yedek olarak alınır; IP'den tahmin edilen kaba konumlar
+     * (ör. operatör yüzünden "İstanbul") böylece elenir. Hiçbiri yoksa son 24 saatteki güvenilir konum, uyarıyla.
      */
     @SuppressLint("MissingPermission")
     suspend fun freshLocation(ctx: Context): LatLng? {
         lastFixNote = null
+        lastFixSource = null
+        loadTrusted(ctx)
         val st = Engine.state.value
-        if (st.mode == "gps" || st.mode == "bekle") st.pos?.let { return it }
+        if (st.mode == "gps" || st.mode == "bekle") st.pos?.let { lastFixSource = "sürüş konumu (${st.gpsText})"; return it }
         val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val providers = lm.getProviders(true).filter {
             it == LocationManager.GPS_PROVIDER || it == LocationManager.NETWORK_PROVIDER || it == "fused"
         }
-        val loc = kotlinx.coroutines.withTimeoutOrNull(10000L) {
-            kotlinx.coroutines.suspendCancellableCoroutine<android.location.Location?> { cont ->
+        val got = ArrayList<LocFix>()
+        val rejected = ArrayList<String>()
+        val started = System.currentTimeMillis()
+        val chosen: LocFix? = kotlinx.coroutines.withTimeoutOrNull(12_000L) {
+            kotlinx.coroutines.suspendCancellableCoroutine<LocFix?> { cont ->
                 val listeners = ArrayList<android.location.LocationListener>()
-                fun done(l: android.location.Location?) {
+                val main = android.os.Handler(android.os.Looper.getMainLooper())
+                var finished = false
+                fun done(l: LocFix?) {
+                    if (finished) return
+                    finished = true
                     listeners.forEach { runCatching { lm.removeUpdates(it) } }
                     if (cont.isActive) cont.resumeWith(Result.success(l))
                 }
+                // GPS gelmezse 6 sn sonra en iyi kabul edilebilir ağ konumu kullanılır
+                main.postDelayed({ if (!finished) LocPick.best(got, trustedFix, System.currentTimeMillis())?.let { done(it) } }, 6_000)
+                main.postDelayed({ if (!finished) done(LocPick.best(got, trustedFix, System.currentTimeMillis())) }, 11_500)
                 for (prov in providers) {
                     val listener = object : android.location.LocationListener {
                         override fun onLocationChanged(l: android.location.Location) {
-                            done(l)
+                            val f = LocFix(LatLng(l.latitude, l.longitude), if (l.hasAccuracy()) l.accuracy else null, System.currentTimeMillis(),
+                                l.provider == LocationManager.GPS_PROVIDER)
+                            val why = LocPick.reject(f, trustedFix, f.t)
+                            if (why != null) { rejected.add("${if (f.gps) "GPS" else "ağ"}: $why"); return }
+                            got.add(f)
+                            if (f.gps) done(f)
                         }
                         override fun onProviderDisabled(provider: String) {}
                         override fun onProviderEnabled(provider: String) {}
@@ -175,17 +213,35 @@ object Places {
                 cont.invokeOnCancellation { listeners.forEach { runCatching { lm.removeUpdates(it) } } }
             }
         }
-        if (loc != null) return LatLng(loc.latitude, loc.longitude)
+        val secs = (System.currentTimeMillis() - started) / 1000
+        if (chosen != null) {
+            if (chosen.gps) noteGps(chosen.ll, chosen.acc, chosen.t)
+            lastFixSource = "${if (chosen.gps) "GPS" else "ağ konumu"} ±${chosen.acc?.toInt() ?: "?"} m"
+            if (!chosen.gps) lastFixNote = "GPS henüz gelmedi; başlangıç ağ konumundan (±${chosen.acc?.toInt() ?: "?"} m). GPS gelince rota gerekirse kendiliğinden düzeltilir."
+            TLog.i("konum", "Rota başlangıcı: $lastFixSource, $secs sn", org.json.JSONObject()
+                .put("adaylar", got.size).put("elenen", org.json.JSONArray(rejected.take(6))))
+            return chosen.ll
+        }
+        // Son çare: telefonun bildiği son konumlardan güvenilir olanı (24 saat içinde)
+        val now = System.currentTimeMillis()
         val last = try {
             lm.getProviders(false).mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
-                .filter { System.currentTimeMillis() - it.time < 24 * 3600 * 1000L }
-                .maxByOrNull { it.time }
+                .filter { now - it.time < 24 * 3600 * 1000L }
+                .map { LocFix(LatLng(it.latitude, it.longitude), if (it.hasAccuracy()) it.accuracy else null, it.time, it.provider == LocationManager.GPS_PROVIDER) }
+                .filter { LocPick.reject(it, trustedFix, now) == null }
         } catch (_: Exception) {
-            null
-        } ?: return null
-        val mins = ((System.currentTimeMillis() - last.time) / 60000).toInt()
-        if (mins >= 2) lastFixNote = "Yeni konum alınamadı; $mins dk önceki konumun kullanıldı. Yanlışsa GPS ile başlatıp tekrar dene."
-        return LatLng(last.latitude, last.longitude)
+            emptyList()
+        }
+        val fb = LocPick.best(last, trustedFix, now) ?: trustedFix?.takeIf { now - it.t < 24 * 3600 * 1000L }
+        if (fb == null) {
+            TLog.w("konum", "Rota başlangıcı için konum alınamadı ($secs sn)", org.json.JSONObject().put("elenen", org.json.JSONArray(rejected.take(6))))
+            return null
+        }
+        val mins = ((now - fb.t) / 60000).toInt()
+        lastFixSource = "$mins dk önceki konum ±${fb.acc?.toInt() ?: "?"} m"
+        if (mins >= 2) lastFixNote = "Yeni konum alınamadı; $mins dk önceki konumun kullanıldı. GPS gelince rota gerekirse kendiliğinden düzeltilir."
+        TLog.w("konum", "Rota başlangıcı eski konumdan: $lastFixSource", org.json.JSONObject().put("elenen", org.json.JSONArray(rejected.take(6))))
+        return fb.ll
     }
 
     fun saveSlot(ctx: Context, slot: String, p: Place) {
@@ -195,7 +251,7 @@ object Places {
 
     /** Kullanıcının isim verip kaydettiği yerler (ör. "Çevrükler Makine"). */
     private var app: Context? = null
-    fun init(ctx: Context) { app = ctx.applicationContext }
+    fun init(ctx: Context) { app = ctx.applicationContext; DistrictFinder.init(ctx) }
 
     /** Noktaya 200 m içindeki kayıtlı yerin adı (önce isimli yerler, sonra Ev / İş). */
     fun placeAt(p: LatLng): String? {
@@ -241,27 +297,151 @@ object Places {
     }
 }
 
-/** Konumdan trafik.gov.tr'nin istediği il/ilçe kimliğini bulur. */
+/**
+ * Konumdan trafik.gov.tr'nin istediği ilçe kimliğini bulur — internete sormadan.
+ * EGM'nin 81 il / 973 ilçe listesi (kimlik + ilçe merkezi) telefonda durur: önce kayıtlı kopya,
+ * yoksa APK'nin içindeki kopya, o da yoksa Supabase'den, o da olmazsa doğrudan EGM'den indirilir.
+ * Supabase'deki liste haftada bir kontrol edilir. Bulunulan ilçe = en yakın ilçe merkezi.
+ */
 object DistrictFinder {
-    private var cities: List<TrafikApi.City>? = null
-    private val districts = HashMap<Int, List<TrafikApi.District>>()
+    data class Ilce(val id: Int, val ilId: Int, val il: String, val ad: String, val lat: Double, val lon: Double)
+
+    @Volatile private var list: List<Ilce> = emptyList()
+    var source = "—"
+        private set
+    private var app: Context? = null
+    private val lock = kotlinx.coroutines.sync.Mutex()
+
+    private const val SB_URL = "https://advcgkmlfrnzwqbtplba.supabase.co"
+    private const val SB_KEY = "sb_publishable_wur9wh2sFeQ7Tsb2r9qdvw_IQFQcxx6"
+
+    fun init(ctx: Context) {
+        app = ctx.applicationContext
+        val f = java.io.File(ctx.filesDir, "egm_ilce.json")
+        val text = runCatching { if (f.exists()) f.readText() else null }.getOrNull()
+        parse(text)?.let { list = it; source = "telefonda kayıtlı" }
+        if (list.isEmpty()) runCatching { ctx.assets.open("egm_ilce.json").bufferedReader().use { it.readText() } }.getOrNull()
+            ?.let { parse(it) }?.let { list = it; source = "uygulama içi" }
+    }
+
+    /** Supabase biçimi: {"surum":…, "ilceler":[[id, il_id, il, ad, lat, lon], …]} */
+    fun parse(text: String?): List<Ilce>? {
+        if (text.isNullOrBlank()) return null
+        return runCatching {
+            val a = JSONObject(text).getJSONArray("ilceler")
+            (0 until a.length()).map { i ->
+                val r = a.getJSONArray(i)
+                Ilce(r.getInt(0), r.getInt(1), r.getString(2), r.getString(3), r.getDouble(4), r.getDouble(5))
+            }
+        }.getOrNull()?.takeIf { it.size > 500 }
+    }
+
+    /** Listeyi gerekirse indirir (ilk kez ya da 7 günde bir). */
+    private suspend fun ensure() {
+        val c = app
+        val prefs = c?.getSharedPreferences("egm", Context.MODE_PRIVATE)
+        val age = System.currentTimeMillis() - (prefs?.getLong("indirme", 0L) ?: 0L)
+        if (list.isNotEmpty() && age < 7 * 24 * 3600_000L) return
+        lock.withLock {
+            if (list.isNotEmpty() && System.currentTimeMillis() - (prefs?.getLong("indirme", 0L) ?: 0L) < 7 * 24 * 3600_000L) return
+            val fresh = withContext(Dispatchers.IO) {
+                runCatching { supabase() }.onFailure { TLog.w("ilce", "İlçe listesi Supabase'den alınamadı: ${it.message}") }.getOrNull()
+                    ?: if (list.isEmpty()) runCatching { fromEgm() }.onFailure { TLog.e("ilce", "İlçe listesi EGM'den de alınamadı: ${it.message}") }.getOrNull() else null
+            }
+            if (fresh != null) {
+                list = fresh.second
+                source = fresh.first
+                if (c != null) runCatching { java.io.File(c.filesDir, "egm_ilce.json").writeText(fresh.third) }
+                prefs?.edit()?.putLong("indirme", System.currentTimeMillis())?.apply()
+                TLog.i("ilce", "İlçe listesi güncellendi: ${list.size} ilçe (${fresh.first})")
+            } else if (list.isNotEmpty()) {
+                // Eldeki liste kullanılmaya devam eder; bir gün sonra tekrar denenir
+                prefs?.edit()?.putLong("indirme", System.currentTimeMillis() - 6 * 24 * 3600_000L)?.apply()
+            }
+        }
+    }
+
+    private fun supabase(): Triple<String, List<Ilce>, String> {
+        val c = URL("$SB_URL/rest/v1/rpc/egm_ilceler").openConnection() as HttpURLConnection
+        c.connectTimeout = 15000; c.readTimeout = 30000
+        c.requestMethod = "POST"; c.doOutput = true
+        c.setRequestProperty("apikey", SB_KEY)
+        c.setRequestProperty("Content-Type", "application/json")
+        c.outputStream.use { it.write("{}".toByteArray()) }
+        val code = c.responseCode
+        val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+        c.disconnect()
+        if (code !in 200..299) throw IOException("HTTP $code")
+        val l = parse(text) ?: throw IOException("liste boş ya da bozuk")
+        return Triple("Supabase", l, text)
+    }
+
+    /** Son çare: 81 il için EGM'ye tek tek sorulur (ilk kurulumda Supabase'e ulaşılamazsa). */
+    private suspend fun fromEgm(): Triple<String, List<Ilce>, String> {
+        val out = ArrayList<Ilce>()
+        val arr = JSONArray()
+        for (city in TrafikApi.cities()) {
+            for (d in TrafikApi.districts(city.id)) {
+                out.add(Ilce(d.id, city.id, city.name, d.name, d.lat, d.lon))
+                arr.put(JSONArray().put(d.id).put(city.id).put(city.name).put(d.name).put(d.lat).put(d.lon))
+            }
+        }
+        if (out.size < 500) throw IOException("EGM listesi eksik (${out.size})")
+        return Triple("EGM", out, JSONObject().put("surum", 0).put("ilceler", arr).toString())
+    }
 
     private fun norm(s: String) = s.lowercase(java.util.Locale("tr", "TR"))
         .replace(" ili", "").replace(" province", "").trim()
 
     /** İlçe merkezinin koordinatı (EGM sitesi ilçe seçilince bunu gönderir). */
-    fun center(id: Int): LatLng? = districts.values.asSequence().flatten().firstOrNull { it.id == id }?.let { LatLng(it.lat, it.lon) }
+    fun center(id: Int): LatLng? = list.firstOrNull { it.id == id }?.let { LatLng(it.lat, it.lon) }
+
+    /** En yakın ilçe merkezi; il biliniyorsa (hedefin aramadan gelen ili) önce o ilin ilçeleri arasından. Saf mantık, testli. */
+    fun pick(all: List<Ilce>, p: LatLng, provinceHint: String?): Ilce? {
+        val inProv = provinceHint?.let { h -> all.filter { norm(it.il) == norm(h) }.ifEmpty { all.filter { norm(h).contains(norm(it.il)) } } }
+        val pool = inProv?.takeIf { it.isNotEmpty() } ?: all
+        return pool.minByOrNull { Geo.dist(p, LatLng(it.lat, it.lon)) }
+    }
 
     suspend fun nearest(p: LatLng, provinceHint: String?): TrafikApi.District {
-        val cs = cities ?: TrafikApi.cities().also { cities = it }
-        val prov = provinceHint ?: runCatching { Places.provinceAt(p) }.getOrNull()
-            ?: throw IOException("Konumun hangi ilde olduğu bulunamadı")
-        val city = cs.find { norm(it.name) == norm(prov) }
-            ?: cs.find { norm(prov).contains(norm(it.name)) }
-            ?: throw IOException("“$prov” ili listede bulunamadı")
-        val ds = districts[city.id] ?: TrafikApi.districts(city.id).also { districts[city.id] = it }
-        val d = ds.minByOrNull { Geo.dist(p, LatLng(it.lat, it.lon)) } ?: throw IOException("İlçe bulunamadı")
+        ensure()
+        val all = list
+        if (all.isEmpty()) throw IOException("ilçe listesi yok (Supabase ve EGM'ye ulaşılamadı)")
+        val d = pick(all, p, provinceHint) ?: throw IOException("ilçe bulunamadı")
         // Rota tam noktadan hesaplansın diye ilçe merkezi yerine gerçek koordinat kullanılır.
-        return d.copy(name = "${d.name}, ${city.name}", lat = p.lat, lon = p.lon)
+        return TrafikApi.District(d.id, "${d.ad}, ${d.il}", p.lat, p.lon)
     }
+}
+
+/** Bir konum ölçümü: GPS mi, ağ mı; doğruluk (m) ve zaman. */
+data class LocFix(val ll: LatLng, val acc: Float?, val t: Long, val gps: Boolean)
+
+/** Rota başlangıcı için konum seçimi (saf mantık; birim testleri var). */
+object LocPick {
+    const val MAX_NET_ACC = 1500f
+    const val MAX_GPS_ACC = 100f
+
+    /** Kabul edilmeyecekse nedeni. */
+    fun reject(f: LocFix, trusted: LocFix?, now: Long): String? {
+        val a = f.acc
+        if (f.gps) { if (a != null && a > MAX_GPS_ACC) return "doğruluk ±${a.toInt()} m"; }
+        else {
+            if (a == null) return "doğruluğu bilinmiyor"
+            if (a > MAX_NET_ACC) return "kaba konum ±${a.toInt()} m"
+        }
+        // Son güvenilir GPS konumundan, aradaki sürede araçla gidilemeyecek kadar uzaksa (150 km/s + 5 km) saçma
+        if (!f.gps && trusted != null && now - trusted.t < 6 * 3600_000L) {
+            val hours = (now - trusted.t) / 3600_000.0
+            val maxM = 5_000 + 150_000 * hours
+            val d = Geo.dist(trusted.ll, f.ll)
+            if (d > maxM) return "son GPS konumuna ${(d / 1000).toInt()} km uzak"
+        }
+        return null
+    }
+
+    /** En iyisi: önce GPS, sonra en doğru ağ konumu. */
+    fun best(list: List<LocFix>, trusted: LocFix?, now: Long): LocFix? =
+        list.filter { reject(it, trusted, now) == null }
+            .sortedWith(compareByDescending<LocFix> { it.gps }.thenBy { it.acc ?: Float.MAX_VALUE }.thenByDescending { it.t })
+            .firstOrNull()
 }

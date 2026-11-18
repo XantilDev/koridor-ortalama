@@ -38,6 +38,7 @@ object AppSettings {
         headingUp = prefs.getBoolean("yon_yukari", true)
         avoidTolls = prefs.getBoolean("ucretsiz_yol", false)
         trafficLayer = prefs.getBoolean("trafik_katmani", true)
+        techLog = prefs.getBoolean("teknik_kayit", true)
         loadMap()
     }
 
@@ -50,6 +51,11 @@ object AppSettings {
     /** Haritada bütün yollarda trafik renkleri (yeşil/sarı/kırmızı). */
     var trafficLayer by mutableStateOf(true)
         private set
+    /** Teknik kayıtlar (hata ayıklama) Supabase'e gitsin (yalnız firma sürümü). */
+    var techLog by mutableStateOf(true)
+        private set
+    fun chooseTechLog(v: Boolean) { techLog = v; prefs.edit().putBoolean("teknik_kayit", v).apply() }
+
     fun chooseTrafficLayer(v: Boolean) { trafficLayer = v; prefs.edit().putBoolean("trafik_katmani", v).apply() }
 
     fun chooseAvoidTolls(v: Boolean) { avoidTolls = v; prefs.edit().putBoolean("ucretsiz_yol", v).apply() }
@@ -78,7 +84,8 @@ object AppSettings {
  * AYSOFT Personel bağlantısı (yalnız "firma" sürümünde; store sürümünde tamamen kapalıdır).
  * Cihaza birden çok çalışan bağlanabilir (ortak araç tableti); sürüş başında sürücü seçilir.
  * Yolculuk "İş" ise: son konum yöneticiye gider, yolculuk km raporuna işlenir.
- * "Şahsi" ise: firmaya HİÇBİR şey gönderilmez (konum da, yolculuk da).
+ * "Şahsi" ise: firmaya konum ve yolculuk gönderilmez. (Teknik kayıtlar — TLog — hata ayıklama için
+ * her yolculukta gider; çalışanlar bilgilendirilip onayları alınmıştır.)
  */
 object Firma {
     val enabled: Boolean = BuildConfig.FIRMA
@@ -104,6 +111,8 @@ object Firma {
 
     private val token: String? get() = accounts.firstOrNull { it.name == driver }?.token
     val connected: Boolean get() = enabled && token != null
+    /** Teknik loglar için: aktif sürücünün, yoksa cihazdaki herhangi bir hesabın oturumu. */
+    internal val logToken: String? get() = if (!enabled) null else token ?: accounts.firstOrNull()?.token
     /** İş yolculuğu: firma sürümü + şirket aracı + "İş" seçili. Şahsi araçta asla. */
     val isWork: Boolean get() = enabled && VehicleStore.active.company && tripType == "is"
     /** Şu an konum paylaşılıyor mu (bağlı + İş yolculuğu) */
@@ -152,7 +161,7 @@ object Firma {
         }
     }
 
-    private fun rpc(fn: String, body: JSONObject): String {
+    internal fun rpc(fn: String, body: JSONObject): String {
         val c = URL("$SB_URL/rest/v1/rpc/$fn").openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 20000
