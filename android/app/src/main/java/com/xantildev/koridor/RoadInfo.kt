@@ -106,12 +106,22 @@ object Traffic {
     }
 }
 
+/** "Selçuklu, Konya" → "Selçuklu"; il merkezleri "Merkez, Aksaray" → "Aksaray Merkez". */
+fun districtLabel(districtName: String): String {
+    val ad = districtName.substringBefore(",").trim()
+    val il = districtName.substringAfter(",", "").trim()
+    return if (ad.equals("Merkez", true) && il.isNotBlank()) "$il Merkez" else ad
+}
+
 /**
  * EGM radar/kontrol sayılarını ilçe arası bölümlere yerleştirir (fark yöntemi):
  * rota üzerindeki her ilçeden hedefe sorulan sayıların farkı, o iki ilçe arasındaki uygulama sayısıdır.
  */
 object RadarMap {
-    class Seg(val info: RouteSession.Info, val fromName: String, val toName: String, val startAlong: Double, val endAlong: Double, val radar: Int, val other: Int)
+    /** [unknown]: EGM'nin iki sorgusu tutarsız (fark eksi çıktı), bu bölümün sayısı hesaplanamadı. */
+    class Seg(val info: RouteSession.Info, val fromName: String, val toName: String, val startAlong: Double, val endAlong: Double, val radar: Int, val other: Int, val unknown: Boolean = false)
+
+    private fun label(districtName: String) = districtLabel(districtName)
 
     var segs by mutableStateOf<List<Seg>>(emptyList())
         private set
@@ -233,9 +243,10 @@ object RadarMap {
                 }
                 r
             }
-            counts.add(Triple(along, d.name.substringBefore(","), e))
+            counts.add(Triple(along, label(d.name), e))
         }
         val out = ArrayList<Seg>()
+        val targetName = inf.target.name.trim().ifBlank { label(to.name) } + " (hedef)"
         for (i in counts.indices) {
             val (a0, n0, e0) = counts[i]
             val next = counts.getOrNull(i + 1)
@@ -246,8 +257,16 @@ object RadarMap {
             if (next != null && next.third == null) continue
             val dr = (r0 ?: 0) - (r1 ?: 0)
             val dot = (o0 ?: 0) - (o1 ?: 0)
-            if (dr < 0 || dot < 0) continue   // tutarsız fark (EGM farklı yol çizmiş olabilir): gösterme
-            out.add(Seg(inf, n0, next?.second ?: to.name.substringBefore(","), a0, next?.first ?: total, dr, dot))
+            val toName = next?.second ?: targetName
+            if (dr < 0 || dot < 0) {
+                // Tutarsız fark (EGM bu ilçeden hedefe farklı yol çizmiş olabilir): satırı gizleme, "hesaplanamadı" göster
+                TLog.w("egm", "Bölüm hesaplanamadı: $n0 – $toName", org.json.JSONObject()
+                    .put("radar", r0 ?: org.json.JSONObject.NULL).put("kontrol", o0 ?: org.json.JSONObject.NULL)
+                    .put("sonraki_radar", r1 ?: org.json.JSONObject.NULL).put("sonraki_kontrol", o1 ?: org.json.JSONObject.NULL))
+                out.add(Seg(inf, n0, toName, a0, next?.first ?: total, 0, 0, unknown = true))
+                continue
+            }
+            out.add(Seg(inf, n0, toName, a0, next?.first ?: total, dr, dot))
         }
         if (RouteSession.info?.target != inf.target) return
         segs = out
@@ -275,8 +294,9 @@ object RadarMap {
         val cur = list[idx]
         val rest = list.drop(idx)
         val rr = rest.sumOf { it.radar }; val ro = rest.sumOf { it.other }
-        remainingText = "🚓 Kalan rotada $rr radar · $ro kontrol noktası"
-        currentText = if (cur.radar > 0 || cur.other > 0)
+        remainingText = "🚓 Kalan rotada ${if (rest.any { it.unknown }) "en az " else ""}$rr radar · $ro kontrol noktası"
+        currentText = if (cur.unknown) "Bu bölüm hesaplanamadı (EGM farklı yol çizdi) · ${cur.fromName} – ${cur.toName}"
+        else if (cur.radar > 0 || cur.other > 0)
             "Bu bölümde ${listOfNotNull(cur.radar.takeIf { it > 0 }?.let { "$it radar" }, cur.other.takeIf { it > 0 }?.let { "$it kontrol" }).joinToString(" · ")} · ${cur.fromName} – ${cur.toName}"
         else "Bu bölümde uygulama yok · ${cur.fromName} – ${cur.toName}"
         if (idx != lastSeg) {

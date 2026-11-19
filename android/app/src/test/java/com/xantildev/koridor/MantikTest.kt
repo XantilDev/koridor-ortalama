@@ -257,3 +257,12 @@ class GeoLinkTest {
         assertNull(GeoLink.parse("geo:0,0"))
     }
 }
+
+class IlceAdiTest {
+    @Test fun merkezIlAdiyla() {
+        assertEquals("Aksaray Merkez", districtLabel("Merkez, Aksaray"))
+        assertEquals("Selçuklu", districtLabel("Selçuklu, Konya"))
+        assertEquals("Gülağaç", districtLabel("Gülağaç"))
+        assertEquals("Merkez", districtLabel("Merkez"))
+    }
+}

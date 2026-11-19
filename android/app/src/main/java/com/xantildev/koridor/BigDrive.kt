@@ -734,9 +734,13 @@ fun RadarSegList() {
         list.forEach { g ->
             val any = g.radar > 0 || g.other > 0
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${g.fromName} – ${g.toName}", color = BFg, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(if (any) listOfNotNull(g.radar.takeIf { it > 0 }?.let { "$it radar" }, g.other.takeIf { it > 0 }?.let { "$it kontrol" }).joinToString(" · ") else "yok",
-                    color = if (any) BOver else BOk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("${g.fromName} – ${g.toName}", color = BFg, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 6.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(when {
+                        g.unknown -> "hesaplanamadı"
+                        any -> listOfNotNull(g.radar.takeIf { it > 0 }?.let { "$it radar" }, g.other.takeIf { it > 0 }?.let { "$it kontrol" }).joinToString(" · ")
+                        else -> "yok"
+                    },
+                    color = if (g.unknown) BMuted else if (any) BOver else BOk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 val ours = OurRadar.inSegment(inf, inf.project(g.info.pointAt(g.startAlong)).first, inf.project(g.info.pointAt(g.endAlong)).first)
                 if (ours > 0) Text(" · bizde $ours nokta", color = BWarn, fontSize = 13.sp, maxLines = 1)
             }
