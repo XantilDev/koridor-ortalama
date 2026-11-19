@@ -216,6 +216,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
             }
         } else {
             you?.remove(); you = null
+            arrowOn = false   // yeni işaret nokta olarak başlar; yön gelince yeniden ok olsun
             hasFix = false
         }
     }

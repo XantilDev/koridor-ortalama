@@ -318,6 +318,40 @@ object RouteSession {
     /** Hedef adı loglarda (kısaltılmış). */
     private fun logTarget(p: Places.Place): String = p.name.take(80)
 
+    /**
+     * Araç rotanın üstündeyse (35 m içinde) rotanın o noktadan 35 m ilerisine doğru yönü; değilse null.
+     * Rota aynı yoldan geri dönüyorsa ters şeride kapılmamak için son konumun ±(200/600) m çevresine bakılır.
+     */
+    private var lastAlong = -1.0
+    private var lastAlongFor: Info? = null
+    fun bearingAt(p: LatLng): Float? {
+        val inf = info ?: return null
+        if (previewing || inf.line.size < 2) return null
+        if (lastAlongFor !== inf) { lastAlongFor = inf; lastAlong = -1.0 }
+        val kx = Math.cos(Math.toRadians(p.lat)) * 111320.0
+        val ky = 110540.0
+        var bestD = Double.MAX_VALUE
+        var bestAlong = -1.0
+        for (i in 0 until inf.line.size - 1) {
+            val a0 = inf.alongAt(i)
+            if (lastAlong >= 0 && (inf.alongAt(i + 1) < lastAlong - 200 || a0 > lastAlong + 600)) continue
+            val a = inf.line[i]; val b = inf.line[i + 1]
+            val bx = (b.lon - a.lon) * kx; val by = (b.lat - a.lat) * ky
+            val px = (p.lon - a.lon) * kx; val py = (p.lat - a.lat) * ky
+            val l2 = bx * bx + by * by
+            val t = if (l2 == 0.0) 0.0 else ((px * bx + py * by) / l2).coerceIn(0.0, 1.0)
+            val dx = px - t * bx; val dy = py - t * by
+            val d = Math.sqrt(dx * dx + dy * dy)
+            if (d < bestD) { bestD = d; bestAlong = a0 + t * (inf.alongAt(i + 1) - a0) }
+        }
+        if (bestAlong < 0 || bestD > 35) { if (bestD > 150) lastAlong = -1.0; return null }
+        lastAlong = bestAlong
+        val p0 = inf.pointAt(bestAlong)
+        val p1 = inf.pointAt(bestAlong + 35)
+        if (Geo.dist(p0, p1) < 8) return null   // rota sonu
+        return HeadingTracker.bearing(p0, p1)
+    }
+
     /** Teşhis ve loglar için rota özeti. */
     fun diagRoute(): String {
         val inf = info ?: return "rota yok"

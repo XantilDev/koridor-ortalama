@@ -124,6 +124,35 @@ class HeadingTest {
         }
     }
 
+    @Test fun rotadaykenGpsOynamasiSallamaz() {
+        // Rota doğuya düz; GPS yönü ±25° oynuyor, konum ±5 m: yön rotadan alınınca harita hiç sallanmamalı
+        val r = Random(7)
+        val h = HeadingTracker("test")
+        var t = 0L; var changes = 0; var last: Float? = null
+        for (i in 0 until 120) {
+            t += 1000
+            val p = LatLng(38.0 + r.nextGaussian() * 5 / 110540, 32.5 + i * 0.0001 + r.nextGaussian() * 5 / 87000)
+            val d = h.step(p, 30, t, (90 + r.nextGaussian() * 25).toFloat()) { 90f }
+            if (i > 5 && d != null && last != null && d != last) changes++
+            last = d
+        }
+        assertEquals(0, changes)
+        assertEquals(90f, h.deg!!, 1f)
+    }
+
+    @Test fun rotadaDonusuTakipEder() {
+        // Rota yönü 90°'den 180°'ye döner (kavşak): harita 6 sn içinde yeni yöne oturmalı
+        val h = HeadingTracker("test")
+        var t = 0L
+        var rt = 90f
+        for (i in 0 until 40) {
+            t += 1000
+            if (i == 20) rt = 180f
+            h.step(LatLng(38.0, 32.5 + i * 0.0001), 25, t, null) { rt }
+            if (i == 26) assertTrue("dönüşten 6 sn sonra yön ${h.deg}", abs(h.deg!! - 180f) < 8)
+        }
+    }
+
     @Test fun durarakDonmez() {
         val h = HeadingTracker("test")
         var t = 0L

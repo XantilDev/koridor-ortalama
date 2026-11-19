@@ -85,10 +85,15 @@ class HeadingTracker(private val tag: String = "harita") {
     var deg: Float? = null
         private set
 
-    fun feed(p: LatLng, speedKmh: Int?): Float? = step(p, speedKmh, System.currentTimeMillis(), GpsHeading.fresh())
+    fun feed(p: LatLng, speedKmh: Int?): Float? =
+        step(p, speedKmh, System.currentTimeMillis(), GpsHeading.fresh()) { RouteSession.bearingAt(p) }
 
-    /** Saf hesap (testlerde zaman ve GPS yönü dışarıdan verilir). */
-    fun step(p: LatLng, speedKmh: Int?, now: Long, gps: Float?): Float? {
+    /**
+     * Saf hesap (testlerde zaman ve GPS yönü dışarıdan verilir).
+     * [route]: araç rotanın üstündeyse rotanın o noktadaki yönü (35 m ileriye). Google Haritalar gibi:
+     * rotadayken yön GPS'ten değil yolun kendisinden alınır, GPS oynaması haritayı sallamaz.
+     */
+    fun step(p: LatLng, speedKmh: Int?, now: Long, gps: Float?, route: () -> Float? = { null }): Float? {
         // Harita her ekran güncellemesinde çağırır; yalnız yeni konumda hesaplanır (aynı nokta yumuşatmayı hızlandırmasın)
         val moved = hist.isEmpty() || Geo.dist(hist.last().second, p) >= 2
         if (moved) hist.addLast(now to p)
@@ -97,17 +102,19 @@ class HeadingTracker(private val tag: String = "harita") {
         if ((speedKmh ?: 0) < 10) return deg
         val base = hist.lastOrNull { Geo.dist(it.second, p) >= BASE_M }
         val mv = base?.let { bearing(it.second, p) }
+        val rt = route()
         val cand = when {
+            rt != null -> rt
             mv != null && gps != null -> norm(mv + diff(gps, mv) / 2)
             else -> mv ?: gps
         } ?: return deg
-        source = when { mv != null && gps != null -> "GPS + hareket"; mv != null -> "hareketten"; else -> "GPS yönü" }
+        source = when { rt != null -> "rotadan"; mv != null && gps != null -> "GPS + hareket"; mv != null -> "hareketten"; else -> "GPS yönü" }
         val s0 = smooth
-        val sm = if (s0 == null) cand else norm(s0 + diff(cand, s0) * ALPHA)
+        val sm = if (s0 == null) cand else norm(s0 + diff(cand, s0) * (if (rt != null) 0.6f else ALPHA))
         smooth = sm
         val old = deg ?: run { deg = sm; return sm }
         val d = diff(sm, old)
-        if (kotlin.math.abs(d) < DEAD) return old
+        if (kotlin.math.abs(d) < (if (rt != null) 5f else DEAD)) return old
         val nd = norm(old + d.coerceIn(-35f, 35f))
         turns.addLast(now)
         deg = nd
