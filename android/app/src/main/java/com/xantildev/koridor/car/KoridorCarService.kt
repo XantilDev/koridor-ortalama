@@ -218,7 +218,7 @@ class CarOverlay(ctx: Context) : View(ctx) {
         }
         if (warn != null) {
             t.color = 0xFFF2B632.toInt(); t.textSize = 13 * dp; t.typeface = Typeface.DEFAULT_BOLD
-            var txt = warn
+            var txt: String = warn
             while (txt.length > 6 && t.measureText(txt) > w - 24 * dp) txt = txt.dropLast(2)
             if (txt != warn) txt = txt.dropLast(1) + "…"
             c.drawText(txt, left + 12 * dp, top + 114 * dp, t)
