@@ -42,7 +42,19 @@ class KoridorCarService : CarAppService() {
 }
 
 class KoridorSession : Session() {
-    override fun onCreateScreen(intent: Intent): Screen = MainCarScreen(carContext)
+    override fun onCreateScreen(intent: Intent): Screen {
+        val api = runCatching { carContext.carAppApiLevel }.getOrDefault(-1)
+        com.xantildev.koridor.TLog.i("auto", "Android Auto oturumu açıldı (araç API $api)")
+        return MainCarScreen(carContext)
+    }
+}
+
+/** Android Auto'daki hatanın nedeni loglara ve araç ekranına yazılsın. */
+private fun carError(where: String, e: Throwable): String {
+    val st = android.util.Log.getStackTraceString(e)
+    com.xantildev.koridor.TLog.e("auto", "Android Auto hatası ($where): ${e.javaClass.simpleName}: ${e.message}",
+        org.json.JSONObject().put("yigin", st.take(3500)))
+    return "${e.javaClass.simpleName}: ${e.message ?: ""}".take(300)
 }
 
 /** Arabanın ekranına büyük ortalama göstergesi ve limit levhası çizer. */
@@ -179,8 +191,14 @@ class MainCarScreen(ctx: CarContext) : Screen(ctx) {
     private val gauge = Gauge()
     private var lastKey = ""
 
+    private var initError: String? = null
+
     init {
-        carContext.getCarService(AppManager::class.java).setSurfaceCallback(gauge)
+        try {
+            carContext.getCarService(AppManager::class.java).setSurfaceCallback(gauge)
+        } catch (e: Throwable) {
+            initError = carError("yüzey", e)
+        }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 Engine.state.collect { s ->
@@ -209,26 +227,23 @@ class MainCarScreen(ctx: CarContext) : Screen(ctx) {
         }
     }
 
-    override fun onGetTemplate(): Template {
+    override fun onGetTemplate(): Template = try {
+        initError?.let { error(it) }
+        buildTemplate()
+    } catch (e: Throwable) {
+        val msg = carError("ekran", e)
+        // Hata olursa bile araçta boş ekran yerine nedenini göster
+        androidx.car.app.model.MessageTemplate.Builder("Koridor Ortalama açılamadı:\n$msg")
+            .setTitle("Koridor Ortalama").build()
+    }
+
+    private fun buildTemplate(): Template {
         val s = Engine.state.value
+        // Navigasyon şablonunda yazılı (başlıklı) düğme en fazla 1 tane olabilir; fazlası şablonu reddettirir
         val strip = ActionStrip.Builder()
         if (!s.driving) {
-            strip.addAction(
-                Action.Builder().setTitle("Başlat").setBackgroundColor(CarColor.YELLOW)
-                    .setOnClickListener { startTracking() }.build()
-            )
+            strip.addAction(Action.Builder().setTitle("Başlat").setOnClickListener { startTracking() }.build())
         } else {
-            if (s.markActive) {
-                strip.addAction(
-                    Action.Builder().setTitle("Koridor sonu").setOnClickListener {
-                        Engine.markEnd()
-                        val pm = Engine.state.value.pendingMark
-                        if (pm != null) Engine.saveMark(pm.limit, null)
-                    }.build()
-                )
-            } else {
-                strip.addAction(Action.Builder().setTitle("Koridor başı").setOnClickListener { Engine.markStart() }.build())
-            }
             strip.addAction(Action.Builder().setTitle(if (s.arrived != null) "Vardım · Bitir" else "Bitir").setOnClickListener { TrackingService.end(carContext) }.build())
         }
         return NavigationTemplate.Builder()
