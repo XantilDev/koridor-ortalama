@@ -23,9 +23,9 @@ import kotlin.math.abs
  * sürüşte rotada (rota yoksa gidiş yönünde) böyle bir nokta yaklaşınca ~3 km ve ~800 m önce uyarılır.
  */
 object OurRadar {
-    data class Mark(val id: String, val tur: String, val ll: LatLng, val yon: Int?, val t: Long)
+    data class Mark(val id: String, val tur: String, val ll: LatLng, val yon: Int?, val t: Long, val by: String? = null)
     /** Tahmini nokta: [count] işaret, [days] farklı gün. */
-    data class Spot(val ll: LatLng, val tur: String, val yon: Int?, val count: Int, val days: Int, val last: Long, val radar: Int, val cevirme: Int) {
+    data class Spot(val ll: LatLng, val tur: String, val yon: Int?, val count: Int, val days: Int, val last: Long, val radar: Int, val cevirme: Int, val lastBy: String? = null) {
         val key: String get() = "%.4f,%.4f".format(java.util.Locale.US, ll.lat, ll.lon)
         val label: String get() = when { cevirme == 0 -> "radar"; radar == 0 -> "çevirme"; else -> "radar/çevirme" }
         val icon: String get() = if (radar >= cevirme) "📷" else "👮"
@@ -79,7 +79,8 @@ object OurRadar {
         return (0 until a.length()).mapNotNull { i ->
             runCatching {
                 val r = a.getJSONArray(i)
-                Mark("s" + r.getLong(0), r.getString(1), LatLng(r.getDouble(2), r.getDouble(3)), if (r.isNull(4)) null else r.getInt(4), r.getLong(5) * 1000)
+                Mark("s" + r.getLong(0), r.getString(1), LatLng(r.getDouble(2), r.getDouble(3)), if (r.isNull(4)) null else r.getInt(4), r.getLong(5) * 1000,
+                    if (r.length() > 6 && !r.isNull(6)) r.getString(6) else null)
             }.getOrNull()
         }
     }
@@ -98,7 +99,7 @@ object OurRadar {
     }
 
     private fun localMarks(): List<Mark> = pending.mapNotNull { o ->
-        runCatching { Mark(o.getString("i"), o.getString("tur"), LatLng(o.getDouble("lat"), o.getDouble("lon")), if (o.has("yon")) o.getInt("yon") else null, o.getLong("t")) }.getOrNull()
+        runCatching { Mark(o.getString("i"), o.getString("tur"), LatLng(o.getDouble("lat"), o.getDouble("lon")), if (o.has("yon")) o.getInt("yon") else null, o.getLong("t"), "sen") }.getOrNull()
     }
 
     private fun recluster() {
@@ -183,7 +184,7 @@ object OurRadar {
                 // Gönderilen işaret sunucu listesine geçer (yeniden indirilene kadar burada tutulur)
                 pending.remove(o)
                 server = server + Mark("s:" + o.getString("i"), o.getString("tur"), LatLng(o.getDouble("lat"), o.getDouble("lon")),
-                    if (o.has("yon")) o.getInt("yon") else null, o.getLong("t"))
+                    if (o.has("yon")) o.getInt("yon") else null, o.getLong("t"), "sen")
                 savePending()
             }
         } finally {
@@ -222,7 +223,8 @@ object OurRadar {
     fun seenText(s: Spot): String {
         val ago = ((System.currentTimeMillis() - s.last) / 86_400_000L).toInt()
         val agoT = when { ago <= 0 -> "bugün"; ago == 1 -> "dün"; ago < 60 -> "$ago gün önce"; else -> "${ago / 30} ay önce" }
-        return "${s.count} kez görüldü, son $agoT"
+        val who = s.lastBy?.let { if (it == "sen") " (sen)" else " (${it.substringBefore(' ')})" } ?: ""
+        return "${s.count} kez görüldü, son $agoT$who"
     }
 
     /** Rotadaki tahmini noktalar (rota hazır olunca söylenir, EGM bölümleriyle karşılaştırılır). */
@@ -257,7 +259,7 @@ object OurRadar {
     /** Yakın (300 m) ve aynı yöne giden işaretleri tek noktada toplar. */
     fun cluster(marks: List<Mark>): List<Spot> {
         class Acc(var lat: Double, var lon: Double, var n: Int, var yonX: Double, var yonY: Double, var yonN: Int,
-                  val days: HashSet<Long>, var last: Long, var radar: Int, var cev: Int)
+                  val days: HashSet<Long>, var last: Long, var radar: Int, var cev: Int, var by: String? = null)
         val acc = ArrayList<Acc>()
         for (m in marks.sortedBy { it.t }) {
             val hit = acc.filter { a ->
@@ -266,7 +268,7 @@ object OurRadar {
             }.minByOrNull { Geo.dist(LatLng(it.lat, it.lon), m.ll) }
             val day = m.t / 86_400_000L
             if (hit == null) {
-                acc.add(Acc(m.ll.lat, m.ll.lon, 1, 0.0, 0.0, 0, hashSetOf(day), m.t, if (m.tur == "cevirme") 0 else 1, if (m.tur == "cevirme") 1 else 0).also { a ->
+                acc.add(Acc(m.ll.lat, m.ll.lon, 1, 0.0, 0.0, 0, hashSetOf(day), m.t, if (m.tur == "cevirme") 0 else 1, if (m.tur == "cevirme") 1 else 0, m.by).also { a ->
                     m.yon?.let { a.yonX = Math.sin(Math.toRadians(it.toDouble())); a.yonY = Math.cos(Math.toRadians(it.toDouble())); a.yonN = 1 }
                 })
             } else {
@@ -274,13 +276,14 @@ object OurRadar {
                 hit.lon = (hit.lon * hit.n + m.ll.lon) / (hit.n + 1)
                 hit.n++
                 m.yon?.let { hit.yonX += Math.sin(Math.toRadians(it.toDouble())); hit.yonY += Math.cos(Math.toRadians(it.toDouble())); hit.yonN++ }
-                hit.days.add(day); hit.last = maxOf(hit.last, m.t)
+                hit.days.add(day)
+                if (m.t >= hit.last) { hit.last = m.t; if (m.by != null) hit.by = m.by }
                 if (m.tur == "cevirme") hit.cev++ else hit.radar++
             }
         }
         return acc.map { a ->
             val y = if (a.yonN > 0) ((Math.toDegrees(Math.atan2(a.yonX, a.yonY)) + 360) % 360).toInt() else null
-            Spot(LatLng(a.lat, a.lon), if (a.radar >= a.cev) "radar" else "cevirme", y, a.n, a.days.size, a.last, a.radar, a.cev)
+            Spot(LatLng(a.lat, a.lon), if (a.radar >= a.cev) "radar" else "cevirme", y, a.n, a.days.size, a.last, a.radar, a.cev, a.by)
         }
     }
 

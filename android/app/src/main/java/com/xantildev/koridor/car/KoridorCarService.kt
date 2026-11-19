@@ -252,7 +252,7 @@ class CarOverlay(ctx: Context) : View(ctx) {
         buttons.clear()
         val keys = ArrayList<Pair<String, String>>()
         if (OurRadar.enabled && s.driving) { keys.add("radar" to "📷"); keys.add("cevirme" to "👮") }
-        keys.add("plus" to "+"); keys.add("minus" to "−")
+        keys.add("ileride" to "☰"); keys.add("plus" to "+"); keys.add("minus" to "−")
         if (!follow) keys.add("center" to "◎")
         val bs = 44 * dp; val gap = 8 * dp
         var bx = left
@@ -295,6 +295,7 @@ class NavCarScreen(ctx: CarContext) : Screen(ctx) {
                 "plus" -> map.zoomIn()
                 "minus" -> map.zoomOut()
                 "center" -> { map.recenter(); invalidate() }
+                "ileride" -> screenManager.push(AheadScreen(carContext))
             }
         }
         try {
@@ -362,17 +363,17 @@ class NavCarScreen(ctx: CarContext) : Screen(ctx) {
         if (s.driving) {
             strip.addAction(Action.Builder().setTitle(if (s.arrived != null) "Vardım · Bitir" else "Bitir")
                 .setOnClickListener { TrackingService.end(carContext); RouteSession.clear() }.build())
-            if (OurRadar.enabled) {
-                strip.addAction(Action.Builder().setIcon(icon(carContext, R.drawable.car_radar))
-                    .setOnClickListener { CarToast.makeText(carContext, OurRadar.mark("radar"), CarToast.LENGTH_SHORT).show() }.build())
-                strip.addAction(Action.Builder().setIcon(icon(carContext, R.drawable.car_police))
-                    .setOnClickListener { CarToast.makeText(carContext, OurRadar.mark("cevirme"), CarToast.LENGTH_SHORT).show() }.build())
-            }
+            strip.addAction(Action.Builder().setIcon(icon(carContext, R.drawable.car_list))
+                .setOnClickListener { screenManager.push(AheadScreen(carContext)) }.build())
+            if (OurRadar.enabled) strip.addAction(Action.Builder().setIcon(icon(carContext, R.drawable.car_radar))
+                .setOnClickListener { CarToast.makeText(carContext, OurRadar.mark("radar"), CarToast.LENGTH_SHORT).show() }.build())
             strip.addAction(Action.Builder().setIcon(icon(carContext, R.drawable.car_flag))
                 .setOnClickListener { screenManager.push(DestinationScreen(carContext) { pick(it) }) }.build())
         } else {
             strip.addAction(Action.Builder().setTitle("Nereye?")
                 .setOnClickListener { screenManager.push(DestinationScreen(carContext) { pick(it) }) }.build())
+            strip.addAction(Action.Builder().setIcon(icon(carContext, R.drawable.car_list))
+                .setOnClickListener { screenManager.push(AheadScreen(carContext)) }.build())
         }
         val mapStrip = ActionStrip.Builder()
             .addAction(Action.PAN)   // kaydırma modu: araç haritayı parmakla kaydırmaya izin verir
@@ -473,6 +474,57 @@ class DestinationScreen(ctx: CarContext, private val onPick: (Places.Place) -> U
         ListTemplate.Builder().setTitle("Nereye?").setHeaderAction(Action.BACK).setSingleList(items.build()).build()
     } catch (e: Throwable) {
         androidx.car.app.model.MessageTemplate.Builder("Liste açılamadı:\n${carError("hedef listesi", e)}").setTitle("Nereye?")
+            .setHeaderAction(Action.BACK).build()
+    }
+}
+
+/**
+ * "İleride": rotada önümüzdeki 200 km'de EDS'ler, EGM'nin ilçe arası radar/kontrol bilgisi, bizim tahmini noktalarımız
+ * (kim, ne zaman işaretledi) ve trafik; yakından uzağa. Araç ekranı en çok birkaç satır gösterir, en yakınları gelir.
+ */
+class AheadScreen(ctx: CarContext) : Screen(ctx) {
+    init {
+        // Sürüşte liste kendini yeniler (mesafeler azalır)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                var last = ""
+                Engine.state.collect { s ->
+                    val k = "${((s.pos?.lat ?: 0.0) * 200).toInt()},${((s.pos?.lon ?: 0.0) * 200).toInt()}|${RadarMap.updatedAt}|${OurRadar.version}"
+                    if (k != last) { last = k; invalidate() }
+                }
+            }
+        }
+    }
+
+    override fun onGetTemplate(): Template = try {
+        val s = Engine.state.value
+        val inf = RouteSession.info
+        val limit = runCatching {
+            carContext.getCarService(androidx.car.app.constraints.ConstraintManager::class.java)
+                .getContentLimit(androidx.car.app.constraints.ConstraintManager.CONTENT_LIMIT_TYPE_LIST)
+        }.getOrDefault(6).coerceIn(2, 12)
+        val list = when {
+            inf != null -> Ahead.items(inf, s.pos)
+            s.pos != null -> Ahead.nearby(s.pos)
+            else -> emptyList()
+        }
+        val items = ItemList.Builder()
+        for (it in list.take(limit)) {
+            val res = when (it.kind) {
+                Ahead.Kind.EDS -> R.drawable.car_flag
+                Ahead.Kind.EGM -> R.drawable.car_police
+                Ahead.Kind.OURS -> R.drawable.car_radar
+                Ahead.Kind.TRAFFIC -> R.drawable.turn_straight
+            }
+            items.addItem(Row.Builder().setTitle(it.title).addText(it.text).setImage(icon(carContext, res)).build())
+        }
+        if (list.isEmpty()) items.setNoItemsMessage(
+            if (inf == null) "Rota yok. Hedef seçince rotadaki EDS, EGM radar bilgisi ve bizim radar noktalarımız burada listelenir."
+            else "Önümüzdeki 200 km'de EDS, radar ya da trafik bilgisi yok.")
+        val title = if (inf != null) "İleride · 200 km" + (RadarMap.timeText()?.let { " · EGM $it" } ?: "") else "Yakında · 20 km"
+        ListTemplate.Builder().setTitle(title).setHeaderAction(Action.BACK).setSingleList(items.build()).build()
+    } catch (e: Throwable) {
+        androidx.car.app.model.MessageTemplate.Builder("Liste açılamadı:\n${carError("ileride", e)}").setTitle("İleride")
             .setHeaderAction(Action.BACK).build()
     }
 }
