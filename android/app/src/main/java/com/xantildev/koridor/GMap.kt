@@ -81,6 +81,8 @@ class GMapHolder(ctx: Context) : LiveMapView {
     private var pinAt: LatLng? = null
     override var navMode = false
     override var rightInsetPx = 0
+    /** Araç ekranında (Android Auto) dönüş kartının kapattığı sol kısım. */
+    var leftInsetPx = 0
     private val heading = HeadingTracker("google")
     private var arrowOn = false
     private var padKey = ""
@@ -192,10 +194,10 @@ class GMapHolder(ctx: Context) : LiveMapView {
             }
             if (h != null) y?.rotation = h
             // Navigasyon görünümü: araç ekranın altına yakın, sağ panelin altında kalmasın
-            val pk = "$nav/$rightInsetPx/${mv.height}"
+            val pk = "$nav/$rightInsetPx/$leftInsetPx/${mv.height}"
             if (pk != padKey) {
                 padKey = pk
-                m.setPadding(0, if (nav) (mv.height * 0.4f).toInt() else 0, rightInsetPx, 0)
+                m.setPadding(leftInsetPx, if (nav) (mv.height * 0.4f).toInt() else 0, rightInsetPx, 0)
             }
             if (RouteSession.previewing) {
                 hasFix = true   // önizlemede kamera rotaların üstünde kalır
