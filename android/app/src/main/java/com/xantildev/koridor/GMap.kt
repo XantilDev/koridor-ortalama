@@ -132,7 +132,7 @@ class GMapHolder(ctx: Context) : LiveMapView {
     override fun update(s: UiState, ver: Int, follow: Boolean) {
         last = Triple(s, ver, follow)
         val m = gm ?: return
-        val n = AppSettings.isNight()
+        val n = nightOverride ?: AppSettings.isNight()
         if (n != night) {
             night = n
             runCatching { m.setMapStyle(if (n) MapStyleOptions(DARK) else null) }
@@ -288,6 +288,19 @@ class GMapHolder(ctx: Context) : LiveMapView {
         m.moveCamera(CameraUpdateFactory.newCameraPosition(
             com.google.android.gms.maps.model.CameraPosition.Builder().target(g(p)).zoom(if (nav) { NavZoom.bias = 0f; NavZoom.of(s.speedKmh) } else maxOf(m.cameraPosition.zoom, 17f))
                 .bearing(if (nav) heading.deg ?: 0f else 0f).tilt(if (nav) 45f else 0f).build()))
+    }
+
+    /** Android Auto: aracın gece/gündüz ayarı (null = uygulamanın kendi ayarı). */
+    var nightOverride: Boolean? = null
+
+    /** Android Auto: parmakla kaydırma ve iki parmakla yakınlaştırma. */
+    fun panBy(dx: Float, dy: Float) { gm?.moveCamera(CameraUpdateFactory.scrollBy(dx, dy)) }
+    fun scaleBy(factor: Float, fx: Float, fy: Float) {
+        val m = gm ?: return
+        if (factor <= 0f) return
+        val dz = (Math.log(factor.toDouble()) / Math.log(2.0)).toFloat()
+        if (fx >= 0 && fy >= 0) m.moveCamera(CameraUpdateFactory.zoomBy(dz, android.graphics.Point(fx.toInt(), fy.toInt())))
+        else m.moveCamera(CameraUpdateFactory.zoomBy(dz))
     }
 
     override fun zoomIn() { if (navMode) NavZoom.bias += 1f; gm?.animateCamera(CameraUpdateFactory.zoomIn()) }

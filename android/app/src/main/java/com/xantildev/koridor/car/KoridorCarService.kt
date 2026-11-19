@@ -109,6 +109,10 @@ class CarMap(private val car: CarContext) : SurfaceCallback {
     private var width = 0
     var error: String? = null
         private set
+    /** Kullanıcı haritayı kaydırınca araç takibi durur; ◎ ile geri gelir. */
+    var follow = true
+    /** Haritaya dokunulan simgeler (sabit düğmeler): radar, çevirme, yakınlaştır, uzaklaştır, aracıma dön. */
+    var onButton: (String) -> Unit = {}
 
     override fun onSurfaceAvailable(sc: SurfaceContainer) {
         try {
@@ -160,7 +164,9 @@ class CarMap(private val car: CarContext) : SurfaceCallback {
 
     fun update(s: UiState) {
         try {
-            holder?.update(s, CorridorStore.version.value, true)
+            (holder as? GMapHolder)?.nightOverride = car.isDarkMode
+            overlay?.follow = follow
+            holder?.update(s, CorridorStore.version.value, follow)
             overlay?.let { it.state = s; it.invalidate() }
         } catch (e: Throwable) {
             TLog.throttled("auto-guncelle", 60_000) { carError("harita güncelleme", e) }
@@ -169,13 +175,39 @@ class CarMap(private val car: CarContext) : SurfaceCallback {
 
     fun zoomIn() = holder?.zoomIn()
     fun zoomOut() = holder?.zoomOut()
-    fun recenter() = holder?.recenter(Engine.state.value)
+    fun recenter() { follow = true; holder?.recenter(Engine.state.value); update(Engine.state.value) }
+
+    // Araç ekranındaki dokunmalar (Android Auto haritaya kaydırma / yakınlaştırma / dokunma iletir)
+    override fun onScroll(distanceX: Float, distanceY: Float) {
+        val h = holder as? GMapHolder ?: return
+        follow = false
+        h.panBy(distanceX, distanceY)
+        overlay?.let { it.follow = false; it.invalidate() }
+    }
+
+    override fun onFling(velocityX: Float, velocityY: Float) {}
+
+    override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) {
+        val h = holder as? GMapHolder ?: return
+        if (scaleFactor == 2f && focusX < 0) { zoomIn(); return }   // çift dokunma
+        follow = false
+        h.scaleBy(scaleFactor, focusX, focusY)
+    }
+
+    override fun onClick(x: Float, y: Float) {
+        overlay?.hit(x, y)?.let { onButton(it) }
+    }
 }
 
 /** Haritanın görünen alanının sol altında: koridor ortalaması (renkli), limit levhası, anlık hız ve ileri uyarı. */
 class CarOverlay(ctx: Context) : View(ctx) {
     var state: UiState? = null
     var area: Rect? = null
+    var follow = true
+    /** Sabit düğmeler (Android Auto'nun kendi düğmeleri birkaç saniye sonra gizlenir; bunlar hep görünür). */
+    private val buttons = LinkedHashMap<String, RectF>()
+
+    fun hit(x: Float, y: Float): String? = buttons.entries.firstOrNull { it.value.contains(x, y) }?.key
     private val dp = ctx.resources.displayMetrics.density
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val t = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -216,6 +248,27 @@ class CarOverlay(ctx: Context) : View(ctx) {
             c.drawText("$lim", cx, cy + 6.5f * dp, t)
             t.textAlign = Paint.Align.LEFT
         }
+        // Panelin üstünde sabit düğmeler: 📷 radar, 👮 çevirme, + , − , (takip durduysa) ◎
+        buttons.clear()
+        val keys = ArrayList<Pair<String, String>>()
+        if (OurRadar.enabled && s.driving) { keys.add("radar" to "📷"); keys.add("cevirme" to "👮") }
+        keys.add("plus" to "+"); keys.add("minus" to "−")
+        if (!follow) keys.add("center" to "◎")
+        val bs = 44 * dp; val gap = 8 * dp
+        var bx = left
+        val by = top - bs - 8 * dp
+        for ((k, label) in keys) {
+            val r = RectF(bx, by, bx + bs, by + bs)
+            p.color = if (k == "radar") 0xF07F1D1D.toInt() else if (k == "cevirme") 0xF01E3A8A.toInt() else 0xE60D1214.toInt()
+            c.drawRoundRect(r, 12 * dp, 12 * dp, p)
+            t.color = 0xFFFFFFFF.toInt(); t.textSize = if (label.length > 1 || k == "radar" || k == "cevirme") 22 * dp else 28 * dp
+            t.typeface = Typeface.DEFAULT_BOLD; t.textAlign = Paint.Align.CENTER
+            val fm = t.fontMetrics
+            c.drawText(label, r.centerX(), r.centerY() - (fm.ascent + fm.descent) / 2, t)
+            t.textAlign = Paint.Align.LEFT
+            buttons[k] = RectF(r.left - 4 * dp, r.top - 4 * dp, r.right + 4 * dp, r.bottom + 4 * dp)
+            bx += bs + gap
+        }
         if (warn != null) {
             t.color = 0xFFF2B632.toInt(); t.textSize = 13 * dp; t.typeface = Typeface.DEFAULT_BOLD
             var txt: String = warn
@@ -235,6 +288,15 @@ class NavCarScreen(ctx: CarContext) : Screen(ctx) {
     private val nav: NavigationManager? = runCatching { ctx.getCarService(NavigationManager::class.java) }.getOrNull()
 
     init {
+        map.onButton = { k ->
+            when (k) {
+                "radar" -> CarToast.makeText(carContext, OurRadar.mark("radar"), CarToast.LENGTH_SHORT).show()
+                "cevirme" -> CarToast.makeText(carContext, OurRadar.mark("cevirme"), CarToast.LENGTH_SHORT).show()
+                "plus" -> map.zoomIn()
+                "minus" -> map.zoomOut()
+                "center" -> { map.recenter(); invalidate() }
+            }
+        }
         try {
             carContext.getCarService(AppManager::class.java).setSurfaceCallback(map)
         } catch (e: Throwable) {
@@ -281,7 +343,7 @@ class NavCarScreen(ctx: CarContext) : Screen(ctx) {
         val n = Directions.next
         val inf = RouteSession.info
         val bucket = n?.let { if (it.distM > 1000) (it.distM / 500).toInt() else (it.distM / 50).toInt() }
-        return "${s.driving}|${inf?.target?.name}|${RouteSession.previewing}|${n?.step?.text}|$bucket|${s.arrived != null}|${map.error}|${(System.currentTimeMillis() / 60_000)}"
+        return "${map.follow}|${s.driving}|${inf?.target?.name}|${RouteSession.previewing}|${n?.step?.text}|$bucket|${s.arrived != null}|${map.error}|${(System.currentTimeMillis() / 60_000)}"
     }
 
     override fun onGetTemplate(): Template = try {
@@ -313,11 +375,13 @@ class NavCarScreen(ctx: CarContext) : Screen(ctx) {
                 .setOnClickListener { screenManager.push(DestinationScreen(carContext) { pick(it) }) }.build())
         }
         val mapStrip = ActionStrip.Builder()
+            .addAction(Action.PAN)   // kaydırma modu: araç haritayı parmakla kaydırmaya izin verir
             .addAction(Action.Builder().setIcon(icon(carContext, R.drawable.car_plus)).setOnClickListener { map.zoomIn() }.build())
             .addAction(Action.Builder().setIcon(icon(carContext, R.drawable.car_minus)).setOnClickListener { map.zoomOut() }.build())
             .addAction(Action.Builder().setIcon(icon(carContext, R.drawable.car_recenter)).setOnClickListener { map.recenter() }.build())
             .build()
         val b = NavigationTemplate.Builder().setActionStrip(strip.build()).setMapActionStrip(mapStrip)
+            .setPanModeListener { panning -> if (panning) map.follow = false }
 
         val n = Directions.next
         val pos = s.pos
