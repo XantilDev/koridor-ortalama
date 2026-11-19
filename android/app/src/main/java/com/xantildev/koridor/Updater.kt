@@ -39,6 +39,7 @@ object Updater {
 
     /** Ayarlardaki "Güncellemeleri kontrol et": günlük sınır olmadan bakar, sonucu yazar. */
     suspend fun checkNow(ctx: Context) {
+        if (!enabled) return
         checking = true
         manualText = "Kontrol ediliyor…"
         val info = fetch()
@@ -61,8 +62,11 @@ object Updater {
         }.getOrNull()
     }
 
+    /** GitHub'dan elle kurulan firma sürümünde açık; Play'den gelen pakette kapalı (güncellemeyi Play yapar). */
+    val enabled: Boolean get() = BuildConfig.FIRMA && !BuildConfig.PLAY
+
     suspend fun check(ctx: Context) {
-        if (!BuildConfig.FIRMA) return
+        if (!enabled) return
         val prefs = ctx.getSharedPreferences("guncelleme", Context.MODE_PRIVATE)
         val info = fetch() ?: return
         if (info.code <= BuildConfig.VERSION_CODE) return
@@ -104,9 +108,9 @@ fun VersionRow() {
     val ctx = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
-        Text("Sürüm #${BuildConfig.VERSION_CODE} (${BuildConfig.VERSION_NAME})" + if (BuildConfig.FIRMA) " · firma" else "",
+        Text("Sürüm #${BuildConfig.VERSION_CODE} (${BuildConfig.VERSION_NAME})" + (if (BuildConfig.FIRMA) " · firma" else "") + (if (BuildConfig.PLAY) " · Play" else ""),
             fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFE9EEEC))
-        if (BuildConfig.FIRMA) {
+        if (Updater.enabled) {
             androidx.compose.material3.OutlinedButton(onClick = { scope.launch { Updater.checkNow(ctx) } }, enabled = !Updater.checking) {
                 Text("Güncellemeleri kontrol et", color = androidx.compose.ui.graphics.Color(0xFFE9EEEC))
             }

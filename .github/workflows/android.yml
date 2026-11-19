@@ -51,7 +51,7 @@ jobs:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
         run: |
           set -o pipefail
-          gradle :app:assembleFirmaDebug :app:assembleStoreDebug :app:bundleStoreRelease --no-daemon --stacktrace 2>&1 | tee build.log
+          gradle :app:assembleFirmaDebug :app:assembleStoreDebug :app:bundleStoreRelease :app:bundleFirmaRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
       - name: Derleme hatasını kaydet
         if: failure()
@@ -72,8 +72,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/firma/debug/app-firma-debug.apk KoridorOrtalama-deneme.apk
+          cp android/app/build/outputs/bundle/firmaRelease/app-firma-release.aab KoridorOrtalama-firma-play.aab
           gh release delete deneme --yes --cleanup-tag 2>/dev/null || true
-          gh release create deneme KoridorOrtalama-deneme.apk --target "${{ github.sha }}" \
+          gh release create deneme KoridorOrtalama-deneme.apk KoridorOrtalama-firma-play.aab --target "${{ github.sha }}" \
             --title "Koridor Ortalama · DENEME #${{ github.run_number }} (yayında değil)" \
             --notes "Sadece deneme içindir; telefonlara güncelleme olarak gitmez. $(git log -1 --format=%s | head -c 300)" \
             --prerelease

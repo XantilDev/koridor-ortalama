@@ -34,8 +34,12 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("test")
+            // GitHub'dan elle kurulan APK: uygulama içi güncelleme kontrolü açık
+            buildConfigField("boolean", "PLAY", "false")
         }
         release {
+            // Play'den dağıtılan paket: Play kuralı gereği uygulama kendini güncellemez, güncellemeler Play'den gelir
+            buildConfigField("boolean", "PLAY", "true")
             // Play'e yükleme anahtarı (Play App Signing asıl imzayı kendisi tutar)
             signingConfig = signingConfigs.getByName("test")
             isMinifyEnabled = false
