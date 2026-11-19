@@ -765,6 +765,8 @@ fun DiagBox() {
             Text("EGM: " + RadarMap.diag() + (TrafikApi.lastMethod?.let { " · yöntem: $it" } ?: ""), color = if (RadarMap.lastError != null) BWarn else BMuted, fontSize = 12.sp)
         }
         Text("İlçe listesi: ${DistrictFinder.source}", color = BMuted, fontSize = 12.sp)
+        Access.notice?.let { Text(it, color = BWarn, fontSize = 12.sp) }
+        Access.quotaText?.let { Text((Access.guestName?.let { "Misafir: $it · " } ?: "Misafir · ") + it, color = BMuted, fontSize = 12.sp) }
         if (MapDiag.text.isNotBlank()) Text(MapDiag.text, color = BMuted, fontSize = 12.sp)
         if (Firma.enabled) {
             Text("Kayıtlar: " + (if (!AppSettings.techLog) "kapalı (Ayarlar)" else

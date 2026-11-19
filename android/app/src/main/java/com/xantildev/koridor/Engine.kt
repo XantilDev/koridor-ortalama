@@ -376,6 +376,7 @@ object Engine {
                 lastEndAt = prev?.ll
                 TLog.i("surus", "Sürüş bitti" + if (reached) " (hedefe varıldı)" else "", org.json.JSONObject()
                     .put("km", Math.round(trip.dist / 100) / 10.0))
+                Access.countTrip(trip.dist / 1000.0)
                 saveTrip()
                 // Hedefe varılıp bitirildiyse hedef temizlenir; park ederken yeni sürüş/yeni "vardın" sorusu çıkmaz
                 if (reached) RouteSession.clear()

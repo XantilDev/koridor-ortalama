@@ -168,6 +168,8 @@ internal fun perms(): Array<String> =
 
 @Composable
 private fun Root(firstOpen: Boolean) {
+    // Erişim: çalışan girişi ya da davet kodu yoksa / yönetici kapattıysa yalnız kilit ekranı
+    if (!Access.allowed) { AccessLock(); return }
     val tab = Nav.tab
     val s by Engine.state.collectAsStateWithLifecycle()
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
@@ -1535,5 +1537,45 @@ private fun TripMap(t: TripRecord) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("Bu yolculuk için rota kaydı yok", color = Muted)
         }
+    }
+}
+
+/** Kilit ekranı: davet kodu girişi, misafir bilgilendirmesi ve çalışan girişi. */
+@Composable
+private fun AccessLock() {
+    val scope = rememberCoroutineScope()
+    var kod by remember { mutableStateOf(Access.code ?: "") }
+    var agree by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    // Çalışan girişi yapılınca hemen yeniden kontrol
+    LaunchedEffect(Firma.accounts.size) { if (Firma.accounts.isNotEmpty()) Access.check() }
+    Column(
+        Modifier.fillMaxSize().background(Bg).verticalScroll(rememberScrollState()).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Koridor Ortalama", color = Fg, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text(Access.lockReason ?: "", color = Warn, fontSize = 16.sp)
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Panel).border(1.dp, Line, RoundedCornerShape(14.dp)).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Davet kodu", color = Fg, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            OutlinedTextField(value = kod, onValueChange = { kod = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '-' }.take(16) },
+                label = { Text("Örn. AYM-7K3QF") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Text("Kullanım bilgilerin (cihaz modeli, günlük yolculuk/km sayısı ve rota/arama sayısı) uygulamayı veren firmaya gönderilir. " +
+                "Konumun ve gittiğin yerler gönderilmez. Firma erişimini istediği zaman kapatabilir.", color = Muted, fontSize = 13.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.Checkbox(checked = agree, onCheckedChange = { agree = it })
+                Text("Okudum, kabul ediyorum.", color = Fg, fontSize = 14.sp)
+            }
+            Button(enabled = kod.length >= 4 && agree && !Access.checking, onClick = {
+                msg = null
+                scope.launch { msg = Access.check(kod) }
+            }, modifier = Modifier.fillMaxWidth()) { Text(if (Access.checking) "Kontrol ediliyor…" else "Kodu doğrula") }
+            msg?.let { Text(it, color = Over, fontSize = 14.sp) }
+        }
+        Text("Çalışansan:", color = Muted, fontSize = 14.sp)
+        FirmaCard()
+        TextButton(onClick = { scope.launch { msg = Access.check() } }) { Text("Tekrar dene", color = Fg) }
     }
 }

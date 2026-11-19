@@ -350,7 +350,10 @@ class NavCarScreen(ctx: CarContext) : Screen(ctx) {
 
     override fun onGetTemplate(): Template = try {
         initError?.let { error(it) }
-        buildTemplate()
+        if (!com.xantildev.koridor.Access.allowed)
+            androidx.car.app.model.MessageTemplate.Builder((com.xantildev.koridor.Access.lockReason ?: "Erişim yok") + "\nTelefonda uygulamayı açıp giriş yap ya da davet kodunu gir.")
+                .setTitle("Koridor Ortalama").build()
+        else buildTemplate()
     } catch (e: Throwable) {
         val msg = carError("ekran", e)
         androidx.car.app.model.MessageTemplate.Builder("Koridor Ortalama açılamadı:\n$msg").setTitle("Koridor Ortalama").build()

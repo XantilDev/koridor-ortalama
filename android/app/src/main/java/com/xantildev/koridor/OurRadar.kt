@@ -51,7 +51,7 @@ object OurRadar {
     var lastMarkText by mutableStateOf<String?>(null)
         private set
 
-    val enabled: Boolean get() = Firma.enabled
+    val enabled: Boolean get() = Firma.enabled && !Access.isGuest   // misafirler firmanın radar kayıtlarını görmez
 
     fun init(ctx: Context) {
         if (!Firma.enabled) return

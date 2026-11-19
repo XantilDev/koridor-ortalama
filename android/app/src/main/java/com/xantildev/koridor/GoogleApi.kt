@@ -43,6 +43,9 @@ object GoogleApi {
     }
 
     private fun post(url: String, fieldMask: String, body: JSONObject): JSONObject {
+        // Misafir kotası: sınır dolunca Google'a gitme (rota OpenStreetMap'ten gelir)
+        if (!Access.googleAllowed()) throw IOException("Günlük Google rota/arama sınırı doldu")
+        Access.countGoogle(if (url.contains("routes", true)) "rota" else "arama")
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 20000

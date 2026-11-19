@@ -30,7 +30,8 @@ object TLog {
     private val lock = Mutex()
     private val queue = ArrayDeque<JSONObject>()
     private var file: File? = null
-    private var deviceId = ""
+    var deviceId = ""
+        private set
     private var dirty = false
     private var started = false
 
@@ -41,7 +42,8 @@ object TLog {
     var pending by mutableStateOf(0)
         private set
 
-    val enabled: Boolean get() = Firma.enabled && AppSettings.techLog
+    /** Misafirlerden (davet kodu) teknik kayıt alınmaz. */
+    val enabled: Boolean get() = Firma.enabled && AppSettings.techLog && !Access.isGuest
 
     fun init(ctx: Context) {
         if (!Firma.enabled) return
@@ -91,7 +93,8 @@ object TLog {
 
     private fun addUnsafe(tur: String, olay: String, m: String, v: JSONObject?) {
         if (!Firma.enabled) return
-        if (!AppSettings.techLog && olay != "cokme") return
+        if ((!AppSettings.techLog || Access.isGuest) && olay != "cokme") return
+        if (Access.isGuest) return
         val st = Engine.state.value
         val o = JSONObject().put("t", System.currentTimeMillis()).put("tur", if (olay == "cokme") "cokme" else tur)
             .put("olay", olay).put("m", m.take(1000)).put("sahsi", !Firma.isWork)
