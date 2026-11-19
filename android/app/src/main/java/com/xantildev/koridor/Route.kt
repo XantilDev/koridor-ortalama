@@ -690,6 +690,13 @@ object RouteSession {
     var lastSharedDebug: String = ""
 
     private suspend fun resolveShared(text: String): Places.Place? = withContext(Dispatchers.IO) {
+        // geo: / google.navigation: linkleri (WhatsApp konumu, rehber adresi, başka uygulamaların "yol tarifi" düğmesi)
+        GeoLink.parse(text.trim())?.let { g ->
+            lastSharedDebug = text.take(160)
+            g.ll?.let { return@withContext Places.Place(g.label ?: "Konum linki", "Konum linki", it.lat, it.lon, null) }
+            g.query?.let { q -> Places.search(q, null).firstOrNull()?.let { return@withContext it } }
+            return@withContext null
+        }
         val url = Regex("https?://\\S+").find(text)?.value ?: return@withContext null
         val sharedName = text.substringBefore(url).lineSequence().map { it.trim().trimEnd(',') }
             .firstOrNull { it.isNotBlank() }

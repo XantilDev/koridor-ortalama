@@ -47,6 +47,44 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+            <!-- Konum linkleri: "Haritada aç", WhatsApp konumu, rehber adresi (geo:) ve "Yol tarifi" düğmeleri
+                 (google.navigation:). Kullanıcı seçim penceresinde "Her zaman" diyebilir. -->
+            <intent-filter android:label="Koridor Ortalama ile git">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="geo" />
+            </intent-filter>
+            <intent-filter android:label="Koridor Ortalama ile git">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="google.navigation" />
+            </intent-filter>
+            <!-- Google Haritalar web linkleri. Not: Google Haritalar uygulaması bu adresleri doğrulanmış olarak
+                 sahiplendiği için Android çoğu zaman doğrudan onu açar; o durumda Paylaş → Koridor Ortalama çalışır. -->
+            <intent-filter android:label="Koridor Ortalama ile git">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="maps.google.com" />
+                <data android:host="maps.app.goo.gl" />
+            </intent-filter>
+            <!-- (Bir filtredeki adres ve yol kuralları birbirine karıştığı için /maps yolu olanlar ayrı) -->
+            <intent-filter android:label="Koridor Ortalama ile git">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="www.google.com" />
+                <data android:host="google.com" />
+                <data android:host="www.google.com.tr" />
+                <data android:host="goo.gl" />
+                <data android:pathPrefix="/maps" />
+            </intent-filter>
         </activity>
 
         <service

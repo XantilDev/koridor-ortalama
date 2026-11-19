@@ -237,3 +237,17 @@ fun pointBitmap(icon: String, density: Float): android.graphics.Bitmap = pointIc
     c.drawText(icon, px / 2f, px / 2f - (fm.ascent + fm.descent) / 2, tp)
     bmp
 }
+
+/** Harita kamerasının her güncellemede ne yapacağı (saf mantık, testli). */
+object CamRule {
+    enum class Act { PREVIEW, FIRST, NAV_ANIMATE, NONE, NORTH_FOLLOW }
+
+    /** [changed]: son kamera hareketinden beri konum ya da yön değişti mi. */
+    fun decide(previewing: Boolean, hasFix: Boolean, follow: Boolean, nav: Boolean, changed: Boolean): Act = when {
+        previewing -> Act.PREVIEW
+        !hasFix -> Act.FIRST
+        !follow -> Act.NONE
+        nav -> if (changed) Act.NAV_ANIMATE else Act.NONE
+        else -> Act.NORTH_FOLLOW
+    }
+}

@@ -101,10 +101,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val firstOpen = savedInstanceState == null
-        // Telefonda dikey; araç ekranı / tablet gibi büyük ekranlarda ekranın kendi yönü
-        if (resources.configuration.smallestScreenWidthDp < 600) {
-            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        }
+        // Ekran yönü telefonda da otomatik (telefon çevrilince yatay düzen); araç ekranı / tablet kendi yönünde
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             MaterialTheme(
@@ -142,6 +139,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleShare(i: Intent?) {
+        // Konum linkine dokunuldu (geo:, google.navigation:, Google Haritalar linki)
+        if (i?.action == Intent.ACTION_VIEW) {
+            val link = i.dataString ?: return
+            i.action = null
+            TLog.i("rota", "Konum linkiyle açıldı", org.json.JSONObject().put("link", link.take(300)))
+            RouteSession.fromShared(this, link)
+            return
+        }
         if (i?.action != Intent.ACTION_SEND) return
         val body = i.getStringExtra(Intent.EXTRA_TEXT) ?: return
         val subject = i.getStringExtra(Intent.EXTRA_SUBJECT)

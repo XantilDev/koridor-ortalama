@@ -199,19 +199,23 @@ class GMapHolder(ctx: Context) : LiveMapView {
                 padKey = pk
                 m.setPadding(leftInsetPx, if (nav) (mv.height * 0.4f).toInt() else 0, rightInsetPx, 0)
             }
-            if (RouteSession.previewing) {
-                hasFix = true   // önizlemede kamera rotaların üstünde kalır
-            } else if (!hasFix) {
-                hasFix = true
-                m.moveCamera(CameraUpdateFactory.newLatLngZoom(gp, if (nav) NavZoom.of(s.speedKmh) else 17f))
-            } else if (follow && nav && (gp != lastCam || h != lastH)) {
-                lastCam = gp; lastH = h
-                val z = NavZoom.of(s.speedKmh)
-                m.animateCamera(CameraUpdateFactory.newCameraPosition(
-                    com.google.android.gms.maps.model.CameraPosition.Builder().target(gp).zoom(z).bearing(h ?: m.cameraPosition.bearing).tilt(45f).build()
-                ), 900, null)
-            } else if (follow) {
-                if (m.cameraPosition.bearing != 0f || m.cameraPosition.tilt != 0f) {
+            when (CamRule.decide(RouteSession.previewing, hasFix, follow, nav, gp != lastCam || h != lastH)) {
+                CamRule.Act.PREVIEW -> hasFix = true   // önizlemede kamera rotaların üstünde kalır
+                CamRule.Act.FIRST -> {
+                    hasFix = true
+                    m.moveCamera(CameraUpdateFactory.newLatLngZoom(gp, if (nav) NavZoom.of(s.speedKmh) else 17f))
+                }
+                CamRule.Act.NAV_ANIMATE -> {
+                    lastCam = gp; lastH = h
+                    val z = NavZoom.of(s.speedKmh)
+                    m.animateCamera(CameraUpdateFactory.newCameraPosition(
+                        com.google.android.gms.maps.model.CameraPosition.Builder().target(gp).zoom(z).bearing(h ?: m.cameraPosition.bearing).tilt(45f).build()
+                    ), 900, null)
+                }
+                // Navigasyonda konum/yön değişmediyse kameraya dokunma. (Eskiden buradan aşağıdaki kuzey-yukarı
+                // dalına düşüyordu: ekran her yenilendiğinde harita kuzeye sıçrıyor, sonraki konumda geri dönüyordu.)
+                CamRule.Act.NONE -> {}
+                CamRule.Act.NORTH_FOLLOW -> if (m.cameraPosition.bearing != 0f || m.cameraPosition.tilt != 0f) {
                     m.moveCamera(CameraUpdateFactory.newCameraPosition(
                         com.google.android.gms.maps.model.CameraPosition.Builder().target(gp).zoom(m.cameraPosition.zoom).bearing(0f).tilt(0f).build()))
                 } else m.moveCamera(CameraUpdateFactory.newLatLng(gp))

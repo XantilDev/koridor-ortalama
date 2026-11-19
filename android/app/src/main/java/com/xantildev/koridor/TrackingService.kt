@@ -87,7 +87,10 @@ class TrackingService : Service() {
     /** Sürüşte ham konumlar 10'arlı paketler hâlinde loga yazılır (sorunlu bölümü sonradan aynen oynatmak için). */
     private val fixBuf = org.json.JSONArray()
     private fun fixLog(loc: Location) {
-        if (Engine.state.value.mode != "gps") { if (fixBuf.length() > 0) flushFixes(); return }
+        // Sürüşte her konum; sürüş kapalıyken de araç hareket ediyorsa (≥ 15 km/s) yazılır, sorunlu anlar kaybolmasın
+        val st = Engine.state.value
+        val moving = loc.hasSpeed() && loc.speed > 4.2f
+        if (st.mode != "gps" && !(st.mode == "bekle" && moving)) { if (fixBuf.length() > 0) flushFixes(); return }
         fixBuf.put(org.json.JSONArray().put(loc.time).put(Math.round(loc.latitude * 1e6) / 1e6).put(Math.round(loc.longitude * 1e6) / 1e6)
             .put(if (loc.hasSpeed()) Math.round(loc.speed * 10) / 10.0 else -1).put(if (loc.hasBearing()) loc.bearing.toInt() else -1)
             .put(if (loc.hasAccuracy()) loc.accuracy.toInt() else -1).put(if (loc.provider == LocationManager.GPS_PROVIDER) "g" else "a"))

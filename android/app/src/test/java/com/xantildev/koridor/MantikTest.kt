@@ -215,3 +215,45 @@ class OurRadarTest {
         assertNull(OurRadar.aheadByHeading(spots, p, 90, 10))    // çok yavaş
     }
 }
+
+class KameraTest {
+    @Test fun navigasyondaAyniKonumdaKameraKuzeyeDonmez() {
+        // Hata: ekran yenilenip konum değişmeyince harita kuzey-yukarıya sıçrıyordu
+        assertEquals(CamRule.Act.NONE, CamRule.decide(previewing = false, hasFix = true, follow = true, nav = true, changed = false))
+        assertEquals(CamRule.Act.NAV_ANIMATE, CamRule.decide(false, true, true, true, true))
+    }
+
+    @Test fun navigasyonKapaliykenKuzeyYukari() {
+        assertEquals(CamRule.Act.NORTH_FOLLOW, CamRule.decide(false, true, true, false, false))
+        assertEquals(CamRule.Act.NONE, CamRule.decide(false, true, false, true, true))   // kullanıcı kaydırdı
+        assertEquals(CamRule.Act.FIRST, CamRule.decide(false, false, true, true, true))
+        assertEquals(CamRule.Act.PREVIEW, CamRule.decide(true, true, true, true, true))
+    }
+}
+
+class GeoLinkTest {
+    @Test fun koordinatliGeo() {
+        val g = GeoLink.parse("geo:38.2512,33.5501")!!
+        assertEquals(38.2512, g.ll!!.lat, 1e-9); assertEquals(33.5501, g.ll!!.lon, 1e-9)
+    }
+
+    @Test fun etiketliGeo() {
+        val g = GeoLink.parse("geo:0,0?q=38.2512,33.5501(Kampüs AVM)")!!
+        assertEquals(38.2512, g.ll!!.lat, 1e-9); assertEquals("Kampüs AVM", g.label)
+    }
+
+    @Test fun adresliGeo() {
+        val g = GeoLink.parse("geo:0,0?q=Kamp%C3%BCs+AVM+Konya")!!
+        assertNull(g.ll); assertEquals("Kampüs AVM Konya", g.query)
+    }
+
+    @Test fun yolTarifiLinki() {
+        assertEquals(37.87, GeoLink.parse("google.navigation:q=37.87,32.49&mode=d")!!.ll!!.lat, 1e-9)
+        assertEquals("Selçuklu Konya", GeoLink.parse("google.navigation:q=Sel%C3%A7uklu+Konya")!!.query)
+    }
+
+    @Test fun baskaLinkDegil() {
+        assertNull(GeoLink.parse("https://maps.app.goo.gl/abc"))
+        assertNull(GeoLink.parse("geo:0,0"))
+    }
+}
