@@ -29,7 +29,7 @@ interface LiveMapView {
 object MapChoice {
     /** Google haritası kullanılabilir mi: anahtar var, ayar "google" ve telefonda Google hizmetleri (ya da microG) var. */
     fun useGoogle(ctx: Context): Boolean {
-        if (!GoogleApi.enabled || AppSettings.mapProvider != "google") return false
+        if (!GoogleApi.mapEnabled || AppSettings.mapProvider != "google") return false
         return try {
             com.google.android.gms.common.GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(ctx) ==
                 com.google.android.gms.common.ConnectionResult.SUCCESS

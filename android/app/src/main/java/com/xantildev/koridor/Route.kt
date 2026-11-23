@@ -366,9 +366,11 @@ object RouteSession {
         RadarMap.onFix(p, inf)
         val tNow = System.currentTimeMillis()
         if (!previewing && Engine.state.value.driving) {
-            // EGM radar sayıları 15 dk'da bir (EGM ~30 dk'da bir günceller); trafikli süre 5 dk'da bir
+            // EGM radar sayıları 15 dk'da bir (EGM ~30 dk'da bir günceller); trafikli süre kısa rotada (15 km altı)
+            // 10 dk'da bir, uzun rotada 15 dk'da bir (Google ücreti ve kişi başı günlük hak için)
             if (RadarMap.dueAt in 1..tNow) RadarMap.refresh(inf, p)
-            if (GoogleApi.enabled && !busy && !rerouting && tNow - maxOf(trafficAt, inf.made) > 5 * 60_000L &&
+            val trafficEvery = if (inf.totalM < 15_000) 10 * 60_000L else 15 * 60_000L
+            if (GoogleApi.enabled && !busy && !rerouting && tNow - maxOf(trafficAt, inf.made) > trafficEvery &&
                 Geo.dist(p, inf.target.ll) > 1500) { trafficAt = tNow; trafficRefresh(inf, p) }
         }
         if (!altPicked && alts.isNotEmpty() && Geo.dist(p, inf.start) > 1500) altPicked = true   // yola çıkıldı, seçenekler kalkar
@@ -402,7 +404,7 @@ object RouteSession {
      */
     private fun trafficRefresh(inf: Info, here: LatLng) {
         scope.launch {
-            val road = try { GoogleApi.route(here, inf.target.ll) } catch (_: Exception) { null } ?: return@launch
+            val road = try { GoogleApi.route(here, inf.target.ll, "trafik") } catch (_: Exception) { null } ?: return@launch
             val cur = info
             if (cur !== inf || rerouting) return@launch
             val probe = road.first.filterIndexed { i, _ -> i % 4 == 0 }.take(60)
@@ -500,7 +502,7 @@ object RouteSession {
             // Yol çizgileri: en fazla 3 seçenek (Google ya da OSRM)
             val roads = try {
                 if (GoogleApi.enabled) GoogleApi.routes(here, p.ll, true).also { routeSource = "Google (trafikli)" }
-                else osrmAll(here, p.ll, true).also { routeSource = "OpenStreetMap" }
+                else osrmAll(here, p.ll, true).also { routeSource = if (Access.freeMode) "OpenStreetMap (ücretsiz mod)" else if (GoogleApi.hasKey && !Access.googleOk) "OpenStreetMap (bugünkü Google hakkı doldu)" else "OpenStreetMap" }
             } catch (e: Exception) {
                 TLog.w("rota", "Google rota hatası, OpenStreetMap'e geçildi: ${e.message?.take(200)}")
                 routeSource = "OpenStreetMap · Google hata verdi: ${e.message?.take(160)}"

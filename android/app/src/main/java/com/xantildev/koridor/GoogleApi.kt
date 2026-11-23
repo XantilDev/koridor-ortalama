@@ -20,7 +20,11 @@ import java.security.MessageDigest
  */
 object GoogleApi {
     val key: String = BuildConfig.MAPS_KEY
-    val enabled: Boolean get() = key.isNotBlank()
+    val hasKey: Boolean get() = key.isNotBlank()
+    /** Rota/arama için Google: anahtar var, ücretsiz modda değil, bugünkü hak dolmamış. Değilse OpenStreetMap. */
+    val enabled: Boolean get() = hasKey && Access.googleOk
+    /** Harita gösterimi (ücretsiz) için Google: kodsuz (ücretsiz mod) kullanıcıda yalnız OpenStreetMap. */
+    val mapEnabled: Boolean get() = hasKey && !Access.freeMode
 
     private var pkg = ""
     private var cert = ""
@@ -42,10 +46,9 @@ object GoogleApi {
         return MessageDigest.getInstance("SHA-1").digest(sig.toByteArray()).joinToString("") { "%02X".format(it) }
     }
 
-    private fun post(url: String, fieldMask: String, body: JSONObject): JSONObject {
-        // Misafir kotası: sınır dolunca Google'a gitme (rota OpenStreetMap'ten gelir)
-        if (!Access.googleAllowed()) throw IOException("Günlük Google rota/arama sınırı doldu")
-        Access.countGoogle(if (url.contains("routes", true)) "rota" else "arama")
+    /** [kind]: rota / trafik / arama — kişi başı günlük hak sunucuda sayılır; hak yoksa istek yapılmaz. */
+    private fun post(url: String, fieldMask: String, body: JSONObject, kind: String): JSONObject {
+        if (!Access.googleGate(kind)) throw IOException(Access.quotaMessage)
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 20000
@@ -84,7 +87,7 @@ object GoogleApi {
         val o = post(
             "https://places.googleapis.com/v1/places:searchText",
             "places.displayName,places.formattedAddress,places.location,places.addressComponents",
-            body
+            body, "arama"
         )
         val a = o.optJSONArray("places") ?: JSONArray()
         (0 until a.length()).mapNotNull { i ->
@@ -103,13 +106,13 @@ object GoogleApi {
     }
 
     /** Araç rotası (Routes API · Essentials): çizgi, metre, saniye. */
-    suspend fun route(a: LatLng, b: LatLng): Triple<List<LatLng>, Double, Double> = routes(a, b, false).first()
+    suspend fun route(a: LatLng, b: LatLng, kind: String = "rota"): Triple<List<LatLng>, Double, Double> = routes(a, b, false, kind).first()
 
     /** Trafikli istek reddedildiyse nedeni (Detay'da gösterilir). */
     @Volatile var trafficError: String? = null
 
     /** Alternatifli rota (en fazla 3). computeAlternativeRoutes ücret sınıfını değiştirmez (tek istek, Essentials). */
-    suspend fun routes(a: LatLng, b: LatLng, alternatives: Boolean): List<Triple<List<LatLng>, Double, Double>> = withContext(Dispatchers.IO) {
+    suspend fun routes(a: LatLng, b: LatLng, alternatives: Boolean, kind: String = "rota"): List<Triple<List<LatLng>, Double, Double>> = withContext(Dispatchers.IO) {
         fun wp(p: LatLng) = JSONObject().put("location", JSONObject().put("latLng", JSONObject().put("latitude", p.lat).put("longitude", p.lon)))
         val body = JSONObject().put("origin", wp(a)).put("destination", wp(b))
             // Trafikli süre ve rota boyunca trafik yoğunluğu (Routes "Pro" sınıfı; ayda 5.000 ücretsiz)
@@ -119,12 +122,14 @@ object GoogleApi {
         if (AppSettings.avoidTolls) body.put("routeModifiers", JSONObject().put("avoidTolls", true))
         val mask = "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.steps.startLocation,routes.legs.steps.distanceMeters,routes.legs.steps.navigationInstruction,routes.travelAdvisory.speedReadingIntervals"
         val o = try {
-            post("https://routes.googleapis.com/directions/v2:computeRoutes", mask, body).also { trafficError = null }
+            post("https://routes.googleapis.com/directions/v2:computeRoutes", mask, body, kind).also { trafficError = null }
         } catch (e: IOException) {
+            // Hak dolduysa ya da ücretsiz moddaysa tekrar deneme: çağıran OpenStreetMap'e geçer
+            if (!Access.googleOk) throw e
             // Trafikli istek reddedilirse trafiksiz dene (rota yine Google'dan gelsin)
             trafficError = e.message
             body.put("routingPreference", "TRAFFIC_UNAWARE"); body.remove("extraComputations")
-            post("https://routes.googleapis.com/directions/v2:computeRoutes", mask.substringBefore(",routes.travelAdvisory"), body)
+            post("https://routes.googleapis.com/directions/v2:computeRoutes", mask.substringBefore(",routes.travelAdvisory"), body, kind)
         }
         val arr = o.optJSONArray("routes") ?: JSONArray()
         val out = (0 until arr.length()).mapNotNull { i ->

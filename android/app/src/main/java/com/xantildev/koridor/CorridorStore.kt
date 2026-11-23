@@ -47,7 +47,8 @@ object CorridorStore {
     fun withOverride(c: Corridor): Corridor {
         val t = VehicleStore.type
         ov[c.key + "|" + t.code]?.let { return c.copy(limit = it) }
-        val car = ov[c.key] ?: c.limit
+        // Öncelik: bu telefonda girilen levha değeri > ekibin ortak düzeltmesi > EGM
+        val car = ov[c.key] ?: SharedLimit.get(c.key)?.limit ?: c.limit
         return c.copy(limit = t.adjust(car))
     }
 

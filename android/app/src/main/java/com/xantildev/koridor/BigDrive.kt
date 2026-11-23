@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -228,9 +229,14 @@ private fun SidePanel(
         // Anlık hız + limit
         val sp = s.speedKmh
         val signSize = if (roomy) 76 else 62
+        // Koridordayken levhaya dokununca "Levhada ne yazıyor?" (EGM limiti yanlış olabiliyor)
+        var limDlg by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+        val onSign: (() -> Unit)? = if (inC && c != null) ({ limDlg = true }) else null
         if (roomy) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            SpeedBox(sp, lim, roomy, Modifier.weight(1f)); LimitSign(s, lim, signSize, roomy)
-        } else { SpeedBox(sp, lim, roomy, Modifier.fillMaxWidth()); LimitSign(s, lim, signSize, roomy) }
+            SpeedBox(sp, lim, roomy, Modifier.weight(1f)); LimitSign(s, lim, signSize, roomy, onSign)
+        } else { SpeedBox(sp, lim, roomy, Modifier.fillMaxWidth()); LimitSign(s, lim, signSize, roomy, onSign) }
+        if (inC) SharedLimit.label(c)?.let { Text(it, color = BMuted, fontSize = 11.sp, textAlign = TextAlign.Center, maxLines = 2) }
+        if (limDlg && c != null) LimitDialog(c, onDismiss = { limDlg = false }) { v -> Engine.setLimit(c, v); limDlg = false }
         // Kalan / pay ya da sıradaki
         if (inC) {
             PanelLine("KALAN", Geo.fmtKm(s.remaining), null, roomy)
@@ -271,9 +277,10 @@ private fun SidePanel(
 }
 
 @Composable
-private fun LimitSign(s: UiState, lim: Int?, signSize: Int, roomy: Boolean) {
-    if (lim == null && s.roadLimit != null) RoadLimitSign(s, signSize) else Box(
-        Modifier.size(signSize.dp).clip(CircleShape).background(if (lim != null) Color.White else BPanel)
+private fun LimitSign(s: UiState, lim: Int?, signSize: Int, roomy: Boolean, onClick: (() -> Unit)? = null) {
+    if (lim == null && s.roadLimit != null && onClick == null) RoadLimitSign(s, signSize) else Box(
+        Modifier.size(signSize.dp).clip(CircleShape).then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .background(if (lim != null) Color.White else BPanel)
             .border(if (roomy) 9.dp else 7.dp, if (lim != null) BRed else BLine, CircleShape),
         contentAlignment = Alignment.Center
     ) { Text(lim?.toString() ?: "—", color = if (lim != null) Color(0xFF111111) else BMuted, fontSize = if (roomy) 28.sp else 22.sp, fontWeight = FontWeight.Bold) }
@@ -728,9 +735,12 @@ fun MuayeneChip() {
 fun RadarSegList() {
     val inf = RouteSession.info ?: return
     val list = RadarMap.segs.filter { it.info.target == inf.target }
-    if (list.isEmpty()) return
+    val asking = RadarMap.status?.takeIf { it.startsWith("EGM bölümleri soruluyor") }
+    if (list.isEmpty() && asking == null) return
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("🚓 İlçe arası radar/kontrol (EGM · ${RadarMap.timeText() ?: ""})", color = BMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(RadarMap.sourceNote, color = BMuted, fontSize = 12.sp, lineHeight = 15.sp)
+        asking?.let { Text("⏳ $it", color = BWarn, fontSize = 13.sp) }
         list.forEach { g ->
             val any = g.radar > 0 || g.other > 0
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -770,7 +780,20 @@ fun DiagBox() {
         }
         Text("İlçe listesi: ${DistrictFinder.source}", color = BMuted, fontSize = 12.sp)
         Access.notice?.let { Text(it, color = BWarn, fontSize = 12.sp) }
-        Access.quotaText?.let { Text((Access.guestName?.let { "Misafir: $it · " } ?: "Misafir · ") + it, color = BMuted, fontSize = 12.sp) }
+        Access.quotaText?.let {
+            val who = when (Access.type) {
+                "kod" -> "Misafir" + (Access.guestName?.let { n -> ": $n" } ?: "")
+                "firma" -> "Firma cihazı" + (Access.guestName?.let { n -> ": $n" } ?: "")
+                "calisan" -> "Çalışan"
+                else -> "Kodsuz"
+            }
+            Text("$who · $it", color = BMuted, fontSize = 12.sp)
+        }
+        if (Access.freeMode) {
+            var codeDlg by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+            OutlinedButton(onClick = { codeDlg = true }, modifier = Modifier.fillMaxWidth()) { Text("🔑 Davet kodu gir", color = BFg) }
+            if (codeDlg) AccessCodeDialog { codeDlg = false }
+        }
         if (MapDiag.text.isNotBlank()) Text(MapDiag.text, color = BMuted, fontSize = 12.sp)
         if (Firma.enabled) {
             Text("Kayıtlar: " + (if (!AppSettings.techLog) "kapalı (Ayarlar)" else

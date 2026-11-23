@@ -8,7 +8,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Haritada rotanın üstüne çizilen ek çizgiler (trafik, radar bölümleri). Üç harita da bunu çizer. */
@@ -227,13 +226,17 @@ object RadarMap {
         }
         if (samples.size < 2) { status = "Rota tek ilçede: bölüm ayrımı yok"; return }
         val counts = ArrayList<Triple<Double, String, TrafikApi.Enforcement?>>()
+        val asks = samples.size - (if (Math.abs(samples[0].first - me) < 1) 1 else 0)
+        var asked = 0
         for ((i, pair) in samples.withIndex()) {
             val (along, d) = pair
             if (RouteSession.info?.target != inf.target) return
             // İlk nokta bulunduğun yer: az önceki sonuç kullanılır (EGM'ye tekrar sorulmaz)
             val e = if (i == 0 && Math.abs(along - me) < 1) now else {
-                delay(3000)   // EGM'yi yormamak için aralıklı
+                // İstekler arası bekleme TrafikApi'de (10 sn; ücretsiz modda 30 sn)
+                status = "EGM bölümleri soruluyor: $asked/$asks · her bölüm ${TrafikApi.egmGapMs / 1000} sn arayla"
                 val (r, err) = TrafikApi.counts(d, to)
+                asked++
                 if (r == null || err != null) {
                     lastError = err
                     TLog.w("egm", "Bölüm hesabı yarım kaldı: $err", org.json.JSONObject().put("ilce", d.name).put("sira", i))
@@ -270,12 +273,17 @@ object RadarMap {
         }
         if (RouteSession.info?.target != inf.target) return
         segs = out
+        if (status?.startsWith("EGM bölümleri soruluyor") == true) status = null
         updatedAt = System.currentTimeMillis()
         TLog.i("egm", "Bölümler: ${samples.size} ilçe, ${out.size} radar/kontrol bölümü", org.json.JSONObject()
             .put("ilceler", org.json.JSONArray(samples.map { it.second.name })))
     }
 
     /** Teşhis kutusu için tek satır. */
+    /** Detay'da kullanıcıya: verinin kaynağı ve neden yavaş geldiği. */
+    val sourceNote: String get() = "Radar ve kontrol sayıları EGM'den (trafik.gov.tr) alınıyor. EGM'yi yormamak için bölümler " +
+        "${TrafikApi.egmGapMs / 1000} sn arayla soruluyor; liste birkaç dakikada dolabilir. EGM verisi güncel olmayabilir."
+
     fun diag(): String = listOfNotNull(
         if (updatedAt > 0) "son başarılı sorgu ${clock(updatedAt)}" else "henüz başarılı sorgu yok",
         if (lastTryAt > 0) "son deneme ${clock(lastTryAt)}" else null,

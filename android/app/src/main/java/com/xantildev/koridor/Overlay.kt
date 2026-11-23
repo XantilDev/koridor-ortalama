@@ -38,8 +38,17 @@ object Overlay {
     fun allowed(ctx: Context): Boolean = Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(ctx)
 
     /** Takip servisinden ve uygulama ön/arka plana geçince çağrılır. */
+    private var lastMoving = 0L
+
+    /**
+     * Yüzen pencere yalnız yolculuk sürerken ve araç seyir halindeyken görünür: "Bitir"le (hazır mod) kapanır,
+     * yolculuk içinde 2 dakikadan uzun duruşta (park) gizlenir, araç yeniden hareket edince gelir.
+     */
     fun update(ctx: Context, s: UiState) {
-        val want = AppSettings.overlay && !appVisible && s.mode != "idle" && allowed(ctx)
+        val now = System.currentTimeMillis()
+        if ((s.speedKmh ?: 0) >= 5) lastMoving = now
+        val moving = now - lastMoving < 2 * 60_000L
+        val want = AppSettings.overlay && !appVisible && s.driving && moving && allowed(ctx)
         if (!want) { hide(); return }
         val portrait = ctx.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
         if (root != null && portrait != compact) hide()

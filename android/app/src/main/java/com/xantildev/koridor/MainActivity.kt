@@ -170,6 +170,7 @@ internal fun perms(): Array<String> =
 private fun Root(firstOpen: Boolean) {
     // Erişim: çalışan girişi ya da davet kodu yoksa / yönetici kapattıysa yalnız kilit ekranı
     if (!Access.allowed) { AccessLock(); return }
+    DisclaimerDialog()
     val tab = Nav.tab
     val s by Engine.state.collectAsStateWithLifecycle()
     val ver by CorridorStore.version.collectAsStateWithLifecycle()
@@ -187,6 +188,7 @@ private fun Root(firstOpen: Boolean) {
     }
     Column(Modifier.fillMaxSize().then(dim).statusBarsPadding().navigationBarsPadding()) {
         StatusLine(s, ver)
+        AccessBanner()
         TabRow(selectedTabIndex = tab, containerColor = Bg, contentColor = Fg) {
             listOf("Sürüş", "Nereye?", "Yolculuk", "Koridor").forEachIndexed { i, t ->
                 Tab(selected = tab == i, onClick = { Nav.tab = i }, text = { Text(t, fontWeight = FontWeight.SemiBold) })
@@ -696,7 +698,7 @@ private fun MarkBox(s: UiState) {
 }
 
 @Composable
-private fun LimitDialog(c: Corridor, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+internal fun LimitDialog(c: Corridor, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
     var t by remember { mutableStateOf(c.limit?.toString() ?: "") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -704,11 +706,14 @@ private fun LimitDialog(c: Corridor, onDismiss: () -> Unit, onSave: (Int) -> Uni
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(c.name, color = Muted, fontSize = 13.sp)
+                Text("Levhada ne yazıyor?", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 OutlinedTextField(
                     value = t, onValueChange = { t = it.filter { ch -> ch.isDigit() }.take(3) },
                     label = { Text("Levhadaki limit (km/s)") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
+                Text(if (SharedLimit.canEdit && !VehicleStore.type.commercial) "Girdiğin değer ekipteki herkesin uygulamasında bu koridor için kullanılır."
+                    else "Girdiğin değer yalnız bu telefonda kullanılır.", color = Muted, fontSize = 12.sp)
             }
         },
         confirmButton = {
@@ -1548,7 +1553,7 @@ private fun AccessLock() {
     var agree by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
     // Çalışan girişi yapılınca hemen yeniden kontrol
-    LaunchedEffect(Firma.accounts.size) { if (Firma.accounts.isNotEmpty()) Access.check() }
+    LaunchedEffect(Firma.accounts.size) { if (Firma.accounts.isNotEmpty()) Access.retry(null) }
     Column(
         Modifier.fillMaxSize().background(Bg).verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1570,12 +1575,79 @@ private fun AccessLock() {
             }
             Button(enabled = kod.length >= 4 && agree && !Access.checking, onClick = {
                 msg = null
-                scope.launch { msg = Access.check(kod) }
+                scope.launch { msg = Access.retry(kod) }
             }, modifier = Modifier.fillMaxWidth()) { Text(if (Access.checking) "Kontrol ediliyor…" else "Kodu doğrula") }
             msg?.let { Text(it, color = Over, fontSize = 14.sp) }
         }
         Text("Çalışansan:", color = Muted, fontSize = 14.sp)
         FirmaCard()
-        TextButton(onClick = { scope.launch { msg = Access.check() } }) { Text("Tekrar dene", color = Fg) }
+        TextButton(onClick = { scope.launch { msg = Access.retry(null) } }) { Text("Tekrar dene", color = Fg) }
     }
+}
+
+/** Açılışta bir kez: verilerin kesin olmadığı, levhaların esas olduğu uyarısı. */
+private object Disclaimer { var shown = false }
+
+@Composable
+private fun DisclaimerDialog() {
+    var open by remember { mutableStateOf(!Disclaimer.shown) }
+    if (!open) return
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Önemli") },
+        text = {
+            Text("Uygulamadaki hız limitleri, koridorlar ve radar/kontrol bilgileri %100 doğru değildir; EGM verisi güncel olmayabilir. " +
+                "Trafik kurallarına uy. Hız limitinde her zaman yoldaki levhaları esas al.", fontSize = 15.sp)
+        },
+        confirmButton = { TextButton(onClick = { Disclaimer.shown = true; open = false }) { Text("Anladım") } }
+    )
+}
+
+/** Ücretsiz mod / kod süresi / günlük hak bilgisi: ana ekranın üstünde ince şerit; kodu buradan girer. */
+@Composable
+private fun AccessBanner() {
+    if (!Access.enabled) return
+    val n = Access.notice ?: return
+    var dlg by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().background(Panel).padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(n, color = Warn, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 3, overflow = TextOverflow.Ellipsis)
+        if (Access.freeMode) TextButton(onClick = { dlg = true }) { Text("Kod gir", color = Fg, fontWeight = FontWeight.Bold) }
+    }
+    if (dlg) AccessCodeDialog { dlg = false }
+}
+
+/** Davet kodu girişi (ücretsiz moddan çıkmak için). Büyük sürüş ekranındaki Teşhis'ten de açılır. */
+@Composable
+internal fun AccessCodeDialog(onDismiss: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var kod by remember { mutableStateOf("") }
+    var agree by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Davet kodu") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = kod, onValueChange = { kod = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '-' }.take(16) },
+                    label = { Text("Örn. AYM-7K3QF") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Text("Kullanım bilgilerin (cihaz modeli, günlük yolculuk/km ve Google istek sayısı) uygulamayı veren firmaya gönderilir. " +
+                    "Konumun ve gittiğin yerler gönderilmez. Firma erişimini istediği zaman kapatabilir.", fontSize = 13.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Checkbox(checked = agree, onCheckedChange = { agree = it })
+                    Text("Okudum, kabul ediyorum.", fontSize = 14.sp)
+                }
+                msg?.let { Text(it, color = Over, fontSize = 14.sp) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = kod.length >= 4 && agree && !Access.checking, onClick = {
+                msg = null
+                scope.launch { val r = Access.check(kod); if (r == null && !Access.freeMode) onDismiss() else msg = r ?: "Kod kabul edilmedi." }
+            }) { Text(if (Access.checking) "Kontrol ediliyor…" else "Doğrula") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Vazgeç") } }
+    )
 }

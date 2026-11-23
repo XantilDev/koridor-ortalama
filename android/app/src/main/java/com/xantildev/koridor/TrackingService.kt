@@ -176,6 +176,12 @@ class TrackingService : Service() {
             sc.launch {
                 while (true) {
                     kotlinx.coroutines.delay(10_000)
+                    // Hazır modda 1 saat hareket yoksa (konum hiç gelmese de) tamamen kapan
+                    if (Engine.standbyExpired()) {
+                        TLog.i("uygulama", "Hazır modda 1 saat hareket yok: konum kapatıldı")
+                        shutdown()
+                        break
+                    }
                     val quiet = System.currentTimeMillis() - lastFixWall
                     if (quiet > 20_000) {
                         TLog.throttled("konum-yok", 60_000) { TLog.w("konum", "Konum alınamıyor (${quiet / 1000} sn), dinleyici yeniden kuruluyor") }
@@ -213,20 +219,30 @@ class TrackingService : Service() {
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val stop = PendingIntent.getService(
-            this, if (standby) 1 else 2, Intent(this, TrackingService::class.java).setAction(if (standby) ACTION_STOP else ACTION_END),
+        // "Kapat": konumu ve uygulamayı tamamen durdurur (süren yolculuk kaydedilir)
+        val close = PendingIntent.getService(
+            this, 1, Intent(this, TrackingService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val stopAction = Notification.Action.Builder(
-            android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-            if (standby) "Konumu kapat" else "Sürüşü bitir", stop
+        val closeAction = Notification.Action.Builder(
+            android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel), "Kapat", close
         ).build()
-        return Notification.Builder(this, CH)
+        val b = Notification.Builder(this, CH)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentTitle(if (standby) "Koridor Ortalama hazır" else "Koridor Ortalama takipte")
             .setContentText(text)
             .setContentIntent(open)
-            .addAction(stopAction)
+        if (!standby) {
+            val end = PendingIntent.getService(
+                this, 2, Intent(this, TrackingService::class.java).setAction(ACTION_END),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            b.addAction(Notification.Action.Builder(
+                android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_pause), "Sürüşü bitir", end
+            ).build())
+        }
+        return b
+            .addAction(closeAction)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()

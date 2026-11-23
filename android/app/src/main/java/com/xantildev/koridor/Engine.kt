@@ -326,6 +326,10 @@ object Engine {
     private var stillSince = 0L
     private var lastEndAt: LatLng? = null
     private var lastMoveWall = 0L
+    /** Hazır modda bu kadar hareket olmazsa konum ve uygulama tamamen kapanır. */
+    const val STANDBY_OFF_MS = 60 * 60_000L
+    /** Hazır modda 1 saattir hareket yok mu (konum hiç gelmese de takip servisi bunu 10 sn'de bir sorar). */
+    fun standbyExpired(): Boolean = mode == "bekle" && lastMoveWall > 0 && System.currentTimeMillis() - lastMoveWall > STANDBY_OFF_MS
     /** Hazır durumda uzun süre hareket olmazsa takibi kapatmak için (servis bağlar). */
     var onStandbyTimeout: (() -> Unit)? = null
 
@@ -351,7 +355,8 @@ object Engine {
             movingSince = null
         }
         gpsText = "Hazır · hareket edince sürüş başlar"
-        if (System.currentTimeMillis() - lastMoveWall > 20 * 60_000L) {
+        if (System.currentTimeMillis() - lastMoveWall > STANDBY_OFF_MS) {
+            TLog.i("uygulama", "Hazır modda 1 saat hareket yok: konum kapatıldı")
             onStandbyTimeout?.invoke()
             return
         }
@@ -716,6 +721,7 @@ object Engine {
     }
 
     fun setLimit(c: Corridor, v: Int) {
+        SharedLimit.submit(c, v)
         CorridorStore.setLimit(c.key, v)
         run?.let { if (it.c.key == c.key) it.c = it.c.copy(limit = v) }
         publish()

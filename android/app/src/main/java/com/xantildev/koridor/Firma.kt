@@ -112,7 +112,10 @@ object Firma {
     private val token: String? get() = accounts.firstOrNull { it.name == driver }?.token
     val connected: Boolean get() = enabled && token != null
     /** Teknik loglar için: aktif sürücünün, yoksa cihazdaki herhangi bir hesabın oturumu. */
-    internal val logToken: String? get() = if (!enabled) null else token ?: accounts.firstOrNull()?.token
+    /** Çalışan oturumu (kişisel giriş). */
+    internal val employeeToken: String? get() = if (!enabled) null else token ?: accounts.firstOrNull()?.token
+    /** Teknik kayıt, ortak radar, EGM ortak kaydı için: çalışan oturumu yoksa firma cihazı kodunun anahtarı. */
+    internal val logToken: String? get() = employeeToken ?: Access.deviceToken?.takeIf { Access.type == "firma" }
     /** İş yolculuğu: firma sürümü + şirket aracı + "İş" seçili. Şahsi araçta asla. */
     val isWork: Boolean get() = enabled && VehicleStore.active.company && tripType == "is"
     /** Şu an konum paylaşılıyor mu (bağlı + İş yolculuğu) */

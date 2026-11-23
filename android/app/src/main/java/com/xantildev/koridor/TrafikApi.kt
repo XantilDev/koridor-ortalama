@@ -18,7 +18,30 @@ object TrafikApi {
     data class City(val id: Int, val name: String)
     data class District(val id: Int, val name: String, val lat: Double, val lon: Double)
 
+    // EGM'yi yormamak (ve engellenmemek) için her istek arasında en az 10 sn; ücretsiz modda 30 sn.
+    // Hata gelirse ara uzar (en çok 60 sn ek), başarılı cevapta normale döner.
+    private val egmLock = Any()
+    @Volatile private var egmLast = 0L
+    @Volatile private var egmPenalty = 0L
+    val egmGapMs: Long get() = if (Access.freeMode) 30_000L else 10_000L
+
+    private fun egmWait() = synchronized(egmLock) {
+        val wait = egmLast + egmGapMs + egmPenalty - System.currentTimeMillis()
+        if (wait > 0) Thread.sleep(wait)
+        egmLast = System.currentTimeMillis()
+    }
+
     private fun http(url: String, form: Map<String, String>? = null, trafik: Boolean = true): String {
+        if (trafik) egmWait()
+        return try {
+            httpOnce(url, form, trafik).also { if (trafik) egmPenalty = 0L }
+        } catch (e: IOException) {
+            if (trafik) egmPenalty = minOf(maxOf(egmPenalty * 2, 10_000L), 60_000L)
+            throw e
+        }
+    }
+
+    private fun httpOnce(url: String, form: Map<String, String>?, trafik: Boolean): String {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 30000
@@ -73,6 +96,7 @@ object TrafikApi {
         )
         val o = JSONObject(http(BASE + "CreateRoute", form))
         if (!o.optBoolean("success")) {
+            egmPenalty = minOf(maxOf(egmPenalty * 2, 10_000L), 60_000L)
             val m = o.optString("message")
             throw IOException(
                 if (m.contains("Servis çağrılırken")) "trafik.gov.tr rota servisi şu an yanıt vermiyor; sitenin kendisi de aynı hatayı veriyor"
