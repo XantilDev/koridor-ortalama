@@ -827,11 +827,19 @@ private fun RouteTab() {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
-                value = rs.query, onValueChange = { rs.query = it },
+                value = rs.query, onValueChange = { rs.type(ctx, it) },
                 label = { Text("Adres ya da yer") }, singleLine = true,
                 modifier = Modifier.weight(1f)
             )
             Button(onClick = { rs.search(ctx) }, enabled = !rs.busy, modifier = Modifier.height(56.dp)) { Text("Ara") }
+        }
+        if (rs.results.isEmpty()) rs.suggestions.forEach { g ->
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Panel).clickable { rs.pick(ctx, g) }.padding(horizontal = 12.dp, vertical = 9.dp)
+            ) {
+                Text((if (g.place != null) "⭐ " else "📍 ") + g.title, color = Fg, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (g.sub.isNotBlank()) Text(g.sub, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         Text(
             "Firmalar için en iyisi: Google Haritalar'da firmayı aç → Paylaş → Koridor Ortalama. Uygulama konumu oradan alır.",

@@ -650,7 +650,7 @@ private fun SearchDialog(onClose: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RoundIcon("←", "Geri", onClose)
                 androidx.compose.material3.OutlinedTextField(
-                    value = rs.query, onValueChange = { rs.query = it }, singleLine = true,
+                    value = rs.query, onValueChange = { rs.type(ctx, it) }, singleLine = true,
                     placeholder = { Text("Adres, firma ya da yer") },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { rs.search(ctx) }),
@@ -662,7 +662,19 @@ private fun SearchDialog(onClose: () -> Unit) {
                 Text(if (rs.busy) "Aranıyor…" else "Ara", fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
             rs.msg?.let { Text(it, color = if (rs.msgBad) BOver else BMuted, fontSize = 14.sp) }
-            val list = if (rs.results.isNotEmpty()) rs.results else Places.savedList(ctx)
+            val sug = if (rs.results.isEmpty()) rs.suggestions else emptyList()
+            if (sug.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                sug.forEach { g ->
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(BPanel).border(1.dp, BLine, RoundedCornerShape(12.dp))
+                            .clickable { onClose(); rs.pick(ctx, g) }.padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Text((if (g.place != null) "⭐ " else "📍 ") + g.title, color = BFg, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (g.sub.isNotBlank()) Text(g.sub, color = BMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            val list = if (rs.results.isNotEmpty()) rs.results else if (sug.isNotEmpty()) emptyList() else Places.savedList(ctx)
             if (rs.results.isEmpty() && list.isNotEmpty()) Text("Kayıtlı yerler", color = BMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(list.size) { i ->

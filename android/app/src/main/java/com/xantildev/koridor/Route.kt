@@ -451,7 +451,59 @@ object RouteSession {
         }
     }
 
+    // ---------------- Yazarken öneri ----------------
+    /** Öneri: kayıtlı yer ([place] dolu) ya da Google önerisi ([placeId] dolu; seçilince konumu istenir). */
+    data class Suggestion(val title: String, val sub: String, val place: Places.Place? = null, val placeId: String? = null)
+
+    var suggestions by mutableStateOf<List<Suggestion>>(emptyList())
+        private set
+    private var suggestJob: kotlinx.coroutines.Job? = null
+    private var suggestSession = java.util.UUID.randomUUID().toString()
+
+    /** Google önerileri yalnız çalışanlar ve firma cihazı için (4 harften sonra, ayrı günlük sınırla). */
+    val googleSuggest: Boolean get() = Firma.enabled && !Access.isGuest && !Access.freeMode && GoogleApi.hasKey
+
+    private fun lower(t: String) = t.lowercase(java.util.Locale("tr", "TR"))
+
+    /** Arama kutusuna yazıldıkça: önce kayıtlı yerler (ücretsiz), 4 harften sonra 0,4 sn bekleyip Google önerileri. */
+    fun type(ctx: Context, text: String) {
+        query = text
+        suggestJob?.cancel()
+        val q = text.trim()
+        if (q.length < 2) { suggestions = emptyList(); return }
+        val lq = lower(q)
+        val local = (listOfNotNull(Places.loadSlot(ctx, "ev")?.let { it.copy(name = "🏠 Ev · " + it.name) },
+                Places.loadSlot(ctx, "is")?.let { it.copy(name = "💼 İş · " + it.name) }) + Places.savedList(ctx))
+            .filter { lower(it.name).contains(lq) || lower(it.detail).contains(lq) }
+            .take(4).map { Suggestion(it.name, it.detail, place = it) }
+        suggestions = local
+        if (q.length < 4 || !googleSuggest) return
+        val near = Places.currentLocation(ctx)
+        suggestJob = scope.launch {
+            kotlinx.coroutines.delay(400)
+            val g = try { GoogleApi.autocomplete(q, near, suggestSession) } catch (_: Exception) { emptyList() }
+            if (query.trim() != q) return@launch
+            suggestions = local + g.filter { p -> local.none { lower(it.title) == lower(p.title) } }
+                .take(6).map { Suggestion(it.title, it.sub, placeId = it.placeId) }
+        }
+    }
+
+    /** Öneriye dokununca: kayıtlıysa hemen rota; Google önerisiyse konumunu alıp rota. */
+    fun pick(ctx: Context, s: Suggestion) {
+        suggestJob?.cancel()
+        s.place?.let { suggestions = emptyList(); go(ctx, it.copy(name = it.name.removePrefix("🏠 Ev · ").removePrefix("💼 İş · "))); return }
+        val id = s.placeId ?: return
+        if (busy) return
+        msg = "Konum alınıyor…"; msgBad = false
+        scope.launch {
+            val p = try { GoogleApi.details(id, suggestSession) } catch (e: Exception) { msg = "Konum alınamadı: ${e.message}"; msgBad = true; null }
+            suggestSession = java.util.UUID.randomUUID().toString()
+            if (p != null) { msg = null; suggestions = emptyList(); go(ctx, p) }
+        }
+    }
+
     fun search(ctx: Context) {
+        suggestJob?.cancel(); suggestions = emptyList()
         val text = query.trim()
         if (text.isEmpty() || busy) return
         busy = true

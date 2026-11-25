@@ -105,6 +105,57 @@ object GoogleApi {
         }
     }
 
+    /** Yazarken öneri (Places API New · Autocomplete). Aynı oturumda yer seçilince ayrıntı ([details]) aynı [session] ile istenir. */
+    data class Prediction(val placeId: String, val title: String, val sub: String)
+
+    suspend fun autocomplete(q: String, near: LatLng?, session: String): List<Prediction> = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("input", q).put("languageCode", "tr").put("regionCode", "TR")
+            .put("includedRegionCodes", JSONArray().put("tr")).put("sessionToken", session)
+        if (near != null) body.put("locationBias", JSONObject().put("circle", JSONObject()
+            .put("center", JSONObject().put("latitude", near.lat).put("longitude", near.lon)).put("radius", 50000.0)))
+        val o = post("https://places.googleapis.com/v1/places:autocomplete",
+            "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat", body, "oneri")
+        val a = o.optJSONArray("suggestions") ?: JSONArray()
+        (0 until a.length()).mapNotNull { i ->
+            val pp = a.getJSONObject(i).optJSONObject("placePrediction") ?: return@mapNotNull null
+            val sf = pp.optJSONObject("structuredFormat")
+            val title = sf?.optJSONObject("mainText")?.optString("text")?.ifBlank { null } ?: return@mapNotNull null
+            Prediction(pp.optString("placeId").ifBlank { return@mapNotNull null }, title,
+                sf.optJSONObject("secondaryText")?.optString("text")?.removeSuffix(", Türkiye") ?: "")
+        }
+    }
+
+    /** Seçilen önerinin konumu (Place Details). Günlük haktan "arama" olarak düşer. */
+    suspend fun details(placeId: String, session: String): Places.Place? = withContext(Dispatchers.IO) {
+        if (!Access.googleGate("arama")) throw IOException(Access.quotaMessage)
+        val c = URL("https://places.googleapis.com/v1/places/" + java.net.URLEncoder.encode(placeId, "UTF-8") +
+            "?languageCode=tr&regionCode=TR&sessionToken=" + java.net.URLEncoder.encode(session, "UTF-8")).openConnection() as HttpURLConnection
+        c.connectTimeout = 15000
+        c.readTimeout = 20000
+        c.setRequestProperty("X-Goog-Api-Key", key)
+        c.setRequestProperty("X-Goog-FieldMask", "displayName,formattedAddress,location,addressComponents")
+        c.setRequestProperty("X-Android-Package", pkg)
+        if (cert.isNotBlank()) c.setRequestProperty("X-Android-Cert", cert)
+        val code = c.responseCode
+        val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+        c.disconnect()
+        if (code !in 200..299) {
+            val m = runCatching { JSONObject(text).getJSONObject("error").optString("message") }.getOrNull()
+            throw IOException("Google: " + (m?.ifBlank { null } ?: "HTTP $code"))
+        }
+        val p = JSONObject(text)
+        val loc = p.optJSONObject("location") ?: return@withContext null
+        val name = p.optJSONObject("displayName")?.optString("text")?.ifBlank { null } ?: return@withContext null
+        var prov: String? = null
+        val comps = p.optJSONArray("addressComponents") ?: JSONArray()
+        for (j in 0 until comps.length()) {
+            val cmp = comps.getJSONObject(j)
+            if ((cmp.optJSONArray("types")?.toString() ?: "").contains("administrative_area_level_1"))
+                prov = cmp.optString("longText").removeSuffix(" İli").ifBlank { null }
+        }
+        Places.Place(name, p.optString("formattedAddress").removeSuffix(", Türkiye"), loc.getDouble("latitude"), loc.getDouble("longitude"), prov)
+    }
+
     /** Araç rotası (Routes API · Essentials): çizgi, metre, saniye. */
     suspend fun route(a: LatLng, b: LatLng, kind: String = "rota"): Triple<List<LatLng>, Double, Double> = routes(a, b, false, kind).first()
 

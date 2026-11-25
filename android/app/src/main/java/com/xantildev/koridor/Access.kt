@@ -236,6 +236,7 @@ object Access {
      */
     fun googleGate(kind: String): Boolean {
         if (!enabled) return true
+        if (kind == "oneri") return suggestGate()
         if (freeMode || quotaFullToday()) return false
         return try {
             val res = Firma.rpc("google_hak", JSONObject().put("p_token", Firma.employeeToken ?: JSONObject.NULL)
@@ -260,6 +261,21 @@ object Access {
             else { usedToday++; true }
         } catch (_: Exception) {
             true
+        }
+    }
+
+    /** Yazarken öneri: rota/trafik/arama hakkından ayrı günlük sınır (sunucuda); sınır dolunca öneri yalnız kayıtlı yerlerden. */
+    private var suggestFullDay = ""
+    private fun suggestGate(): Boolean {
+        if (freeMode || isGuest || suggestFullDay == today()) return false
+        return try {
+            val o = JSONObject(Firma.rpc("google_hak", JSONObject().put("p_token", Firma.employeeToken ?: JSONObject.NULL)
+                .put("p_kod", if (type == "firma") code ?: JSONObject.NULL else JSONObject.NULL)
+                .put("p_cihaz", TLog.deviceId).put("p_tur", "oneri")))
+            if (!o.optBoolean("izin") && o.optString("neden") == "oneri_sinir") suggestFullDay = today()
+            o.optBoolean("izin")
+        } catch (_: Exception) {
+            false   // bağlantı yoksa öneri de gelmez
         }
     }
 
