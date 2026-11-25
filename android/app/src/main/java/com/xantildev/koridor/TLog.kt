@@ -98,6 +98,7 @@ object TLog {
         val st = Engine.state.value
         val o = JSONObject().put("t", System.currentTimeMillis()).put("tur", if (olay == "cokme") "cokme" else tur)
             .put("olay", olay).put("m", m.take(1000)).put("sahsi", !Firma.isWork)
+            .put("s", BuildConfig.VERSION_CODE)   // kaydın yazıldığı andaki sürüm (gönderim sonradan olsa da)
         if (v != null) o.put("v", v)
         st.pos?.let { o.put("lat", Math.round(it.lat * 1e6) / 1e6).put("lon", Math.round(it.lon * 1e6) / 1e6) }
         st.speedKmh?.let { o.put("hiz", it) }

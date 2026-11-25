@@ -181,7 +181,7 @@ class WebMapHolder(ctx: Context) : LiveMapView {
             val key = "${p.lat},${p.lon},$h,$fol,$nav,$inset,$z"
             if (key != posKey) {
                 posKey = key
-                js("setPos(${p.lat},${p.lon},${h ?: "null"},$fol,$nav,$inset,${!hadFix && !RouteSession.previewing},$z)")
+                js("setPos(${p.lat},${p.lon},${h ?: "null"},$fol,$nav,$inset,${!hadFix && !RouteSession.previewing},$z,false,${s.speedKmh ?: 0})")
                 hadFix = true
             }
         } else if (hadFix) { hadFix = false; js("clearPos()") }
@@ -234,7 +234,7 @@ function init(){
  map.addListener('mousedown',function(e){clearTimeout(lp);var ll=e.latLng;lp=setTimeout(function(){Android.press(ll.lat(),ll.lng())},650)});
  map.addListener('mouseup',function(){clearTimeout(lp)});
  map.addListener('contextmenu',function(e){clearTimeout(lp);Android.press(e.latLng.lat(),e.latLng.lng())});
- map.addListener('heading_changed',function(){curH=map.getHeading()||0;if(you&&lastH!=null)you.setIcon(Object.assign({},you.getIcon(),{rotation:arrowRot(lastH)}))});
+ map.addListener('heading_changed',function(){curH=map.getHeading()||0;if(you&&lastH!=null){iconH=null;setIconH(lastH)}});
  var done=false;function go(){if(done)return;done=true;vec=map.getRenderingType&&map.getRenderingType()==='VECTOR';size();
   google.maps.event.trigger(map,'resize');Android.ready()}
  map.addListener('renderingtype_changed',function(){if(map.getRenderingType()!=='UNINITIALIZED')go()});
@@ -276,18 +276,38 @@ function setTrail(pts,reset){if(!trail)trail=new google.maps.Polyline({map:map,p
 function move(p,brg,d){var b=brg*Math.PI/180;return {lat:p.lat+d*Math.cos(b)/111320,lng:p.lng+d*Math.sin(b)/(111320*Math.cos(p.lat*Math.PI/180))}}
 var curH=0,lastH=null;
 function arrowRot(h){return vec?((h-curH)+360)%360:h}
-function clearPos(){if(you){you.setMap(null);you=null}}
-function setPos(lat,lon,h,follow,nav,inset,first,zz,force){var pos={lat:lat,lng:lon};lastH=h;
- if(!you)you=new google.maps.Marker({map:map,zIndex:20,clickable:false});you.setPosition(pos);
- you.setIcon(h==null?{path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:'#F2B632',fillOpacity:1,strokeColor:'#fff',strokeWeight:3}
-  :{path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:6,rotation:arrowRot(h),fillColor:'#2F7BFF',fillOpacity:1,strokeColor:'#fff',strokeWeight:2});
- if(!follow&&!first){if(!nav&&lastNav){lastNav=false}return}
- var z=(nav||first||force)?zz:Math.max(map.getZoom(),12);
- var hh=(nav&&h!=null)?h:0,mpp=156543.03*Math.cos(lat*Math.PI/180)/Math.pow(2,z);
- var c=move(pos,hh,(nav?innerHeight*0.25:0)*mpp);c=move(c,hh+90,(inset/2)*mpp);
- if(vec){map.moveCamera({center:c,zoom:z,heading:nav?hh:0,tilt:nav?45:0});curH=nav?hh:0;if(h!=null&&you.getIcon())you.setIcon(Object.assign({},you.getIcon(),{rotation:arrowRot(h)}))}
- else{map.setCenter(c);if(map.getZoom()!=z)map.setZoom(z);document.getElementById('wrap').style.transform='rotate('+(nav?-hh:0)+'deg)'}
- lastNav=nav}
+function clearPos(){if(you){you.setMap(null);you=null}disp=null;anim=null}
+// Yumuşak takip: yeni konum gelince ok ve harita önceki konumdan yenisine (iki konum arası süre kadar) kayarak gider,
+// yön en kısa yoldan döner. Konum gecikirse ok son hızla en çok 1,5 sn tahmini ilerler (takılma hissi olmasın).
+var disp=null,anim=null,raf=0,lastT=0,iconH=null,iconNull=null;
+function lerpA(a,b,k){var d=((b-a+540)%360)-180;return (a+d*k+360)%360}
+function setIconH(h){if(h==null){if(iconNull===true)return;iconNull=true;iconH=null;
+  you.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:'#F2B632',fillOpacity:1,strokeColor:'#fff',strokeWeight:3});return}
+ var r=arrowRot(h);if(iconNull===false&&iconH!=null&&Math.abs(((r-iconH+540)%360)-180)<0.5)return;iconNull=false;iconH=r;
+ you.setIcon({path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:6,rotation:r,fillColor:'#2F7BFF',fillOpacity:1,strokeColor:'#fff',strokeWeight:2})}
+function render(lat,lon,h,o){var pos={lat:lat,lng:lon};lastH=h;
+ if(!you){you=new google.maps.Marker({map:map,zIndex:20,clickable:false});iconH=null;iconNull=null}
+ you.setPosition(pos);
+ if(!o.follow&&!o.first){setIconH(h);if(!o.nav&&lastNav){lastNav=false}return}
+ var z=(o.nav||o.first||o.force)?o.zz:Math.max(map.getZoom(),12);
+ var hh=(o.nav&&h!=null)?h:0,mpp=156543.03*Math.cos(lat*Math.PI/180)/Math.pow(2,z);
+ var c=move(pos,hh,(o.nav?innerHeight*0.25:0)*mpp);c=move(c,hh+90,(o.inset/2)*mpp);
+ if(vec){map.moveCamera({center:c,zoom:z,heading:o.nav?hh:0,tilt:o.nav?45:0});curH=o.nav?hh:0}
+ else{map.setCenter(c);if(map.getZoom()!=z)map.setZoom(z);document.getElementById('wrap').style.transform='rotate('+(o.nav?-hh:0)+'deg)'}
+ setIconH(h);lastNav=o.nav}
+function step(ts){raf=0;if(!anim)return;var a=anim,k=(ts-a.t0)/a.dur,lat,lon,h;
+ if(k<1){var e=k;lat=a.f.lat+(a.t.lat-a.f.lat)*e;lon=a.f.lon+(a.t.lon-a.f.lon)*e;
+   h=(a.t.h==null)?null:(a.f.h==null?a.t.h:lerpA(a.f.h,a.t.h,Math.min(1,k*1.5)))}
+ else{var ex=Math.min(ts-a.t0-a.dur,1500);lat=a.t.lat;lon=a.t.lon;h=a.t.h;
+   if(a.v>2.8&&h!=null&&ex>0){var q=move({lat:lat,lng:lon},h,a.v*ex/1000);lat=q.lat;lon=q.lng}}
+ disp={lat:lat,lon:lon,h:h};render(lat,lon,h,a.o);
+ if(k<1||(a.v>2.8&&ts-a.t0-a.dur<1500))raf=requestAnimationFrame(step)}
+function setPos(lat,lon,h,follow,nav,inset,first,zz,force,kmh){
+ var o={follow:follow,nav:nav,inset:inset,first:first,zz:zz,force:!!force},now=performance.now();
+ var dt=lastT?now-lastT:1000;lastT=now;
+ if(!disp||first||force||document.hidden||dt>5000){anim=null;if(raf){cancelAnimationFrame(raf);raf=0}disp={lat:lat,lon:lon,h:h};render(lat,lon,h,o);return}
+ anim={f:{lat:disp.lat,lon:disp.lon,h:disp.h},t:{lat:lat,lon:lon,h:h},t0:now,dur:Math.max(300,Math.min(1500,dt)),o:o,v:(kmh||0)/3.6};
+ if(!raf)raf=requestAnimationFrame(step)}
 </script>
 <script async src="https://maps.googleapis.com/maps/api/js?key=__KEY__&callback=init&v=weekly&language=tr&region=TR"></script>
 </body></html>
