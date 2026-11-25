@@ -28,6 +28,8 @@ class TrackingService : Service() {
 
     companion object {
         private const val CH = "takip"
+        private const val CH_ALERT = "konum_uyari"
+        private const val ID_ALERT = 8
         private const val ID = 7
         private const val ACTION_STOP = "dur"
         private const val ACTION_END = "bitir"
@@ -107,7 +109,10 @@ class TrackingService : Service() {
             // GPS varken ağ konumu yalnız GPS sustuğunda kullanılır
             if (loc.provider != LocationManager.GPS_PROVIDER && System.currentTimeMillis() - lastFixWall < 5000) return
             val gap = System.currentTimeMillis() - lastFixWall
-            if (lastFixWall > 0 && gap > 20_000) TLog.w("konum", "Konum ${gap / 1000} sn sonra geri geldi (${loc.provider})")
+            if (lastFixWall > 0 && gap > 20_000) {
+                TLog.w("konum", "Konum ${gap / 1000} sn sonra geri geldi (${loc.provider})")
+                clearGpsAlert()
+            }
             lastFixWall = System.currentTimeMillis()
             fixLog(loc)
             // GPS'in kendi gidiş yönü (hareketten hesaplanandan çok daha kararlı); yalnız 10 km/s üstünde
@@ -187,6 +192,8 @@ class TrackingService : Service() {
                         TLog.throttled("konum-yok", 60_000) { TLog.w("konum", "Konum alınamıyor (${quiet / 1000} sn), dinleyici yeniden kuruluyor") }
                         if (System.currentTimeMillis() - lastRearm > 30_000) rearm()
                         Engine.gpsStatus("Konum alınamıyor (${quiet / 1000} sn) — yeniden deneniyor")
+                        // Sürüşte konum kesildiyse (çoğunlukla araç tableti arka plandaki uygulamaya konum vermiyor) uyar
+                        if (Engine.state.value.mode == "gps") gpsAlert(quiet)
                     }
                 }
             }
@@ -212,6 +219,46 @@ class TrackingService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    // ---------------- Konum kesildi uyarısı ----------------
+    private var lastGpsAlert = 0L
+    private var gpsAlertShown = false
+
+    /**
+     * Sürüşte konum 20 sn'den uzun gelmezse: sesli uyarı + dokununca uygulamayı açan bildirim (3 dk'da bir tekrar).
+     * Uygulama öndeyse yalnız ekrandaki "Konum alınamıyor" yazısı yeter, ses 3 dk'da bir.
+     */
+    private fun gpsAlert(quiet: Long) {
+        val now = System.currentTimeMillis()
+        if (now - lastGpsAlert < 3 * 60_000L) return
+        lastGpsAlert = now
+        val fg = AppState.foreground
+        Engine.say(if (fg) "Konum alınamıyor." else "Konum alınamıyor. Ölçüm için uygulamayı öne alın.", key = "konum-kesildi", gap = 0, corridor = true)
+        TLog.w("konum", "Konum kesildi uyarısı verildi (${quiet / 1000} sn, " + (if (fg) "ön planda" else "arka planda") + ")")
+        if (fg) return
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(CH_ALERT, "Konum uyarısı", NotificationManager.IMPORTANCE_HIGH))
+        val open = PendingIntent.getActivity(
+            this, 3, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        nm.notify(ID_ALERT, Notification.Builder(this, CH_ALERT)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentTitle("Konum alınamıyor")
+            .setContentText("Ortalama hız ölçülemiyor. Dokun, uygulamayı öne al.")
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_NAVIGATION)
+            .build())
+        gpsAlertShown = true
+    }
+
+    private fun clearGpsAlert() {
+        lastGpsAlert = 0L
+        if (!gpsAlertShown) return
+        gpsAlertShown = false
+        runCatching { getSystemService(NotificationManager::class.java).cancel(ID_ALERT) }
     }
 
     private fun build(text: String, standby: Boolean = false): Notification {
