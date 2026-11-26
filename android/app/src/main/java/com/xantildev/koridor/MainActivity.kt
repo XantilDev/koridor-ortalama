@@ -123,6 +123,7 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         Overlay.appVisible = true
         AppState.set(true)
+        TrackingService.refresh(this)
         Overlay.update(this, Engine.state.value)
     }
 

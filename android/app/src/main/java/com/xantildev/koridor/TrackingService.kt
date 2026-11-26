@@ -33,6 +33,7 @@ class TrackingService : Service() {
         private const val ID = 7
         private const val ACTION_STOP = "dur"
         private const val ACTION_END = "bitir"
+        private const val ACTION_REFRESH = "tazele"
         private const val EXTRA_RESUME = "devam"
         private const val EXTRA_STANDBY = "hazir"
         var running = false
@@ -57,6 +58,15 @@ class TrackingService : Service() {
         /** Sürüşü bitirir (kaydeder), konum açık kalır; servis yoksa motoru durdurur. */
         fun end(ctx: Context) {
             if (running) Engine.endTrip() else Engine.stop()
+        }
+
+        /**
+         * Uygulama öne gelince: servis zaten açıksa ön plan servisi olarak tazelenir ve konum dinleyicisi yeniden kurulur.
+         * (Servis arka planda yeniden başlatıldıysa Android ona yalnız uygulama öndeyken konum verir; öndeyken tazelemek bunu düzeltir.)
+         */
+        fun refresh(ctx: Context) {
+            if (!running) return
+            runCatching { ContextCompat.startForegroundService(ctx, Intent(ctx, TrackingService::class.java).setAction(ACTION_REFRESH)) }
         }
 
         fun stop(ctx: Context) {
@@ -148,6 +158,13 @@ class TrackingService : Service() {
         }
         if (intent?.action == ACTION_END) {
             Engine.endTrip()
+            return START_STICKY
+        }
+        if (intent?.action == ACTION_REFRESH) {
+            startFg()   // startForegroundService ile gelindi: 5 sn içinde ön plana geçmek zorunlu
+            if (!running) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); return START_NOT_STICKY }
+            rearm()
+            TLog.i("konum", "Uygulama öne geldi: konum servisi tazelendi")
             return START_STICKY
         }
         startFg()
